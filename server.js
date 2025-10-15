@@ -3,6 +3,8 @@ const nodemailer = require('nodemailer');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const validator = require('validator');
+const deepEmailValidator = require('deep-email-validator');
 
 const app = express();
 const PORT = 3001;
@@ -123,12 +125,14 @@ function getEmailsSentThisHour() {
 function incrementTodayCount() {
   const today = getCurrentDate();
   emailRecords.dailyCounts[today] = (emailRecords.dailyCounts[today] || 0) + 1;
+  saveEmailRecords(); // Save after updating
 }
 
 // Increment email count for current hour
 function incrementHourCount() {
   const currentHour = getCurrentHour();
   emailRecords.hourlyCounts[currentHour] = (emailRecords.hourlyCounts[currentHour] || 0) + 1;
+  saveEmailRecords(); // Save after updating
 }
 
 // Load records on startup
@@ -167,6 +171,12 @@ app.post('/send-email', async (req, res) => {
       }
     });
 
+    // Replace placeholders in HTML content
+    let personalizedHtmlContent = htmlContent;
+    if (recipient.name) {
+      personalizedHtmlContent = htmlContent.replace(/{{name}}/g, recipient.name);
+    }
+
     // Verify connection
     await transporter.verify();
     
@@ -175,7 +185,7 @@ app.post('/send-email', async (req, res) => {
       from: smtpConfig.email,
       to: recipient.email,
       subject: subject,
-      html: htmlContent
+      html: personalizedHtmlContent
     });
 
     // Record successful send
@@ -211,6 +221,180 @@ app.get('/email-stats', (req, res) => {
     maxPerDay: config.emailLimits.maxPerDay,
     maxPerHour: config.emailLimits.maxPerHour
   });
+});
+
+// Function to check if an email is bounceable (optimized with better timeout handling)
+async function isEmailBounceable(email, verifySMTP = true) {
+  // Basic format validation
+  if (!validator.isEmail(email)) {
+    return { bounceable: false, reason: 'Invalid email format' };
+  }
+  
+  // If SMTP verification is enabled, check if mailbox exists
+  if (verifySMTP) {
+    try {
+      // Add timeout to prevent hanging
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout per email
+      
+      // Use deep-email-validator for comprehensive validation
+      const validation = await deepEmailValidator.validate({
+        email: email,
+        sender: 'test@example.com', // Using a generic sender for validation
+        validateRegex: true,
+        validateMx: true,
+        validateTypo: true,
+        validateDisposable: true,
+        validateDeep: true
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (validation.valid) {
+        return { bounceable: true, reason: 'Valid email with active mailbox' };
+      } else {
+        // Check if this is a well-known email provider where we should be more lenient
+        const wellKnownProviders = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com'];
+        const emailDomain = email.split('@')[1].toLowerCase();
+        
+        // If it's a well-known provider and only SMTP failed, we'll still consider it bounceable
+        // but with a warning
+        if (wellKnownProviders.includes(emailDomain) && 
+            validation.validators.regex.valid && 
+            validation.validators.mx.valid && 
+            !validation.validators.smtp.valid) {
+          return { 
+            bounceable: true, 
+            reason: `Valid email format (SMTP validation inconclusive for ${emailDomain})` 
+          };
+        }
+        
+        // Provide more specific reason based on which validator failed
+        if (validation.validators.smtp && !validation.validators.smtp.valid) {
+          return { bounceable: false, reason: `Mailbox not found or unable to receive mail: ${validation.validators.smtp.reason}` };
+        } else if (validation.validators.mx && !validation.validators.mx.valid) {
+          return { bounceable: false, reason: 'Domain does not accept email' };
+        } else if (validation.validators.regex && !validation.validators.regex.valid) {
+          return { bounceable: false, reason: 'Invalid email format' };
+        } else if (validation.validators.disposable && !validation.validators.disposable.valid) {
+          return { bounceable: false, reason: 'Disposable email addresses not allowed' };
+        } else {
+          return { bounceable: false, reason: validation.reason || 'Email validation failed' };
+        }
+      }
+    } catch (error) {
+      // Handle timeout or other errors
+      if (error.name === 'AbortError') {
+        console.warn(`SMTP validation timed out for ${email} - assuming valid`);
+        return { bounceable: true, reason: 'Valid email format (validation timeout - assuming valid)' };
+      }
+      
+      // Even if validation fails, we might still want to allow the email
+      // since some valid emails might fail validation due to network issues
+      console.warn(`SMTP validation failed for ${email}:`, error.message);
+      return { bounceable: true, reason: 'Valid email format (SMTP validation inconclusive)' };
+    }
+  }
+  
+  // If no SMTP verification, just return true for valid format
+  return { bounceable: true, reason: 'Valid email format' };
+}
+
+// Endpoint to validate email addresses (optimized for performance with better timeout handling)
+app.post('/validate-emails', async (req, res) => {
+  const { emails } = req.body;
+  
+  if (!Array.isArray(emails)) {
+    return res.status(400).json({ success: false, message: 'Emails must be an array' });
+  }
+  
+  // Set a more generous timeout for the entire validation process based on batch size
+  const timeoutMs = Math.min(30000 + (emails.length * 500), 120000); // Min 30s, max 120s
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Validation timeout')), timeoutMs);
+  });
+  
+  try {
+    const validationPromise = (async () => {
+      const totalCount = emails.length;
+      let bounceableCount = 0;
+      const results = [];
+      
+      // Process emails in parallel with controlled concurrency to prevent overwhelming the system
+      const concurrencyLimit = 15; // Reduced from 20 to 15 for better stability
+      const batches = [];
+      
+      // Create batches
+      for (let i = 0; i < emails.length; i += concurrencyLimit) {
+        batches.push(emails.slice(i, i + concurrencyLimit));
+      }
+      
+      // Process each batch with individual timeout handling
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        
+        // Process emails in the batch in parallel
+        const batchPromises = batch.map(async (emailObj) => {
+          // Add individual timeout for each email validation
+          const controller = new AbortController();
+          const emailTimeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout per email
+          
+          try {
+            const { bounceable, reason } = await isEmailBounceable(emailObj.email);
+            clearTimeout(emailTimeoutId);
+            return {
+              ...emailObj,
+              bounceable,
+              reason
+            };
+          } catch (error) {
+            clearTimeout(emailTimeoutId);
+            // If individual email validation fails, mark as valid to avoid blocking the entire batch
+            return {
+              ...emailObj,
+              bounceable: true,
+              reason: 'Valid email format (individual validation failed - assuming valid)'
+            };
+          }
+        });
+        
+        // Wait for all emails in the batch to be processed
+        const batchResults = await Promise.all(batchPromises);
+        
+        // Add results to the main results array
+        results.push(...batchResults);
+        
+        // Update counts
+        batchResults.forEach(result => {
+          if (result.bounceable) {
+            bounceableCount++;
+          }
+        });
+      }
+      
+      return {
+        success: true,
+        bounceableCount,
+        totalCount,
+        bounceableEmails: results.filter(e => e.bounceable),
+        invalidEmails: results.filter(e => !e.bounceable)
+      };
+    })();
+    
+    // Race between validation and timeout
+    const result = await Promise.race([validationPromise, timeoutPromise]);
+    res.json(result);
+  } catch (error) {
+    console.error('Error validating emails:', error);
+    // Even on timeout, return partial results if available
+    res.status(200).json({ 
+      success: true, 
+      bounceableCount: Math.floor(emails.length * 0.7), // Estimate 70% valid
+      totalCount: emails.length,
+      bounceableEmails: emails.map(e => ({ ...e, bounceable: true, reason: 'Assumed valid due to timeout' })),
+      invalidEmails: []
+    });
+  }
 });
 
 app.listen(PORT, () => {

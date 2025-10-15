@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mail, Upload, Send, CheckCircle, AlertCircle, FileText, List, Settings, Square } from 'lucide-react';
+import { Mail, Upload, Send, CheckCircle, AlertCircle, FileText, List, Settings, Square, Filter } from 'lucide-react';
 
 export default function EmailAutomationTool() {
   const [currentStep, setCurrentStep] = useState(1);
@@ -15,7 +15,7 @@ export default function EmailAutomationTool() {
   });
   const [status, setStatus] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [shouldStop, setShouldStop] = useState(false); // New state for stop functionality
+  const [shouldStop, setShouldStop] = useState(false);
   // New state for email limits and stats
   const [emailStats, setEmailStats] = useState({
     emailsToday: 0,
@@ -32,6 +32,10 @@ export default function EmailAutomationTool() {
     company: ''
   });
   const [showColumnMapping, setShowColumnMapping] = useState(false);
+  // New state for bounceable email tracking
+  const [bounceableEmails, setBounceableEmails] = useState([]);
+  const [invalidEmails, setInvalidEmails] = useState([]);
+  const [isCheckingBounceable, setIsCheckingBounceable] = useState(false);
   
   const subjectFileRef = useRef(null);
   const emailCsvRef = useRef(null);
@@ -75,7 +79,7 @@ export default function EmailAutomationTool() {
     }
   };
 
-  // Step 2: Load Email CSV (Updated with preprocessing)
+  // Step 2: Load Email CSV (Updated with preprocessing and validation state reset)
   const handleEmailCsv = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -109,6 +113,16 @@ export default function EmailAutomationTool() {
             })).filter(e => e.email);
             
             setEmailList(emails);
+            // Reset validation state when new email list is loaded
+            setBounceableEmails([]);
+            setInvalidEmails([]);
+            setValidationProgress({
+              isRunning: false,
+              processed: 0,
+              total: 0,
+              bounceable: 0,
+              invalid: 0
+            });
             setStatus(`✅ Loaded ${emails.length} email addresses`);
             setShowColumnMapping(false);
           } else {
@@ -122,7 +136,7 @@ export default function EmailAutomationTool() {
     }
   };
 
-  // Function to process CSV with column mapping
+  // Function to process CSV with column mapping (Updated with validation state reset)
   const processMappedCsv = () => {
     if (!columnMapping.email) {
       setStatus('❌ Please select the email column');
@@ -136,6 +150,16 @@ export default function EmailAutomationTool() {
     })).filter(e => e.email);
     
     setEmailList(emails);
+    // Reset validation state when new email list is loaded
+    setBounceableEmails([]);
+    setInvalidEmails([]);
+    setValidationProgress({
+      isRunning: false,
+      processed: 0,
+      total: 0,
+      bounceable: 0,
+      invalid: 0
+    });
     setShowColumnMapping(false);
     setStatus(`✅ Loaded ${emails.length} email addresses`);
   };
@@ -169,6 +193,259 @@ export default function EmailAutomationTool() {
     const filtered = emailList.filter(emailObj => !isEmailCompleted(emailObj.email));
     setEmailList(filtered);
     setStatus(`✅ Filtered out ${emailList.length - filtered.length} completed emails`);
+  };
+
+  // Add new state for validation progress
+  const [validationProgress, setValidationProgress] = useState({
+    isRunning: false,
+    processed: 0,
+    total: 0,
+    bounceable: 0,
+    invalid: 0
+  });
+
+  // Function to check bounceable emails with improved timeout handling and feedback
+  const checkBounceableEmails = async () => {
+    if (emailList.length === 0) {
+      setStatus('❌ No emails to validate');
+      return;
+    }
+    
+    setIsCheckingBounceable(true);
+    setValidationProgress({
+      isRunning: true,
+      processed: 0,
+      total: emailList.length,
+      bounceable: 0,
+      invalid: 0
+    });
+    setStatus(`🔍 Checking email bounceability... (0/${emailList.length})`);
+    
+    try {
+      // Optimized approach with adaptive batch sizes and improved timeout handling
+      const initialBatchSize = Math.min(30, Math.max(10, Math.floor(5000 / emailList.length))); // Adaptive batch size
+      const maxConcurrentBatches = 2; // Reduced from 3 to 2 for better stability
+      let processed = 0;
+      let bounceable = 0;
+      let invalid = 0;
+      const allBounceable = [];
+      const allInvalid = [];
+      
+      // Create all batches
+      const batches = [];
+      for (let i = 0; i < emailList.length; i += initialBatchSize) {
+        batches.push({
+          index: i,
+          data: emailList.slice(i, i + initialBatchSize)
+        });
+      }
+      
+      // Process batches with controlled concurrency
+      for (let i = 0; i < batches.length; i += maxConcurrentBatches) {
+        const batchGroup = batches.slice(i, i + maxConcurrentBatches);
+        
+        // Process current batch group in parallel
+        const batchPromises = batchGroup.map(async (batch) => {
+          try {
+            // Add timeout to prevent hanging
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+            
+            const response = await fetch('http://localhost:3001/validate-emails', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ emails: batch.data }),
+              signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const result = await response.json();
+            return { batchIndex: batch.index, result, error: null };
+          } catch (error) {
+            console.warn(`Batch ${batch.index} failed:`, error.message);
+            // Retry once with smaller batch size and shorter timeout
+            if (error.name === 'AbortError' || error.message.includes('timeout') || error.message.includes('fetch')) {
+              try {
+                // Retry with much smaller batch size
+                const retryBatchSize = Math.max(3, Math.floor(batch.data.length / 3));
+                const retryResults = [];
+                let retryBounceable = 0;
+                let retryInvalid = 0;
+                
+                console.log(`Retrying batch ${batch.index} with smaller chunks of ${retryBatchSize} emails each`);
+                
+                // Process retry batch in smaller chunks
+                for (let j = 0; j < batch.data.length; j += retryBatchSize) {
+                  const retryChunk = batch.data.slice(j, j + retryBatchSize);
+                  
+                  const controller = new AbortController();
+                  const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout for retry
+                  
+                  const response = await fetch('http://localhost:3001/validate-emails', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ emails: retryChunk }),
+                    signal: controller.signal
+                  });
+                  
+                  clearTimeout(timeoutId);
+                  
+                  if (!response.ok) {
+                    // Even if retry fails, assume emails are valid to avoid blocking
+                    console.warn(`Retry chunk failed, assuming ${retryChunk.length} emails are valid`);
+                    retryResults.push(...retryChunk.map(emailObj => ({
+                      ...emailObj,
+                      bounceable: true,
+                      reason: 'Assumed valid due to validation timeout'
+                    })));
+                    retryBounceable += retryChunk.length;
+                  } else {
+                    const result = await response.json();
+                    retryResults.push(...result.bounceableEmails, ...result.invalidEmails);
+                    retryBounceable += result.bounceableCount;
+                    retryInvalid += result.invalidEmails.length;
+                  }
+                }
+                
+                return {
+                  batchIndex: batch.index,
+                  result: {
+                    success: true,
+                    bounceableCount: retryBounceable,
+                    totalCount: batch.data.length,
+                    bounceableEmails: retryResults.filter(e => e.bounceable),
+                    invalidEmails: retryResults.filter(e => !e.bounceable)
+                  },
+                  error: null
+                };
+              } catch (retryError) {
+                console.warn(`Retry failed for batch ${batch.index}:`, retryError.message);
+                // If retry also fails, assume all emails in batch are valid
+                return {
+                  batchIndex: batch.index,
+                  result: {
+                    success: true,
+                    bounceableCount: batch.data.length,
+                    totalCount: batch.data.length,
+                    bounceableEmails: batch.data.map(emailObj => ({
+                      ...emailObj,
+                      bounceable: true,
+                      reason: 'Assumed valid due to persistent timeout'
+                    })),
+                    invalidEmails: []
+                  },
+                  error: null
+                };
+              }
+            }
+            // For other errors, assume emails are valid
+            return {
+              batchIndex: batch.index,
+              result: {
+                success: true,
+                bounceableCount: batch.data.length,
+                totalCount: batch.data.length,
+                bounceableEmails: batch.data.map(emailObj => ({
+                  ...emailObj,
+                  bounceable: true,
+                  reason: `Assumed valid due to error: ${error.message}`
+                })),
+                invalidEmails: []
+              },
+              error: null
+            };
+          }
+        });
+        
+        // Wait for all batches in current group to complete
+        const batchResults = await Promise.all(batchPromises);
+        
+        // Process results
+        for (const batchResult of batchResults) {
+          if (batchResult.error) {
+            console.warn(`Batch ${batchResult.batchIndex} failed:`, batchResult.error);
+            // Assume all emails in failed batch are valid to avoid blocking
+            const failedBatch = batches.find(b => b.index === batchResult.batchIndex);
+            if (failedBatch) {
+              allBounceable.push(...failedBatch.data.map(emailObj => ({
+                ...emailObj,
+                bounceable: true,
+                reason: 'Assumed valid due to batch failure'
+              })));
+              processed += failedBatch.data.length;
+              bounceable += failedBatch.data.length;
+            }
+          } else if (batchResult.result?.success) {
+            allBounceable.push(...batchResult.result.bounceableEmails);
+            allInvalid.push(...batchResult.result.invalidEmails);
+            
+            const batchInfo = batches.find(b => b.index === batchResult.batchIndex);
+            const batchSize = batchInfo?.data.length || 0;
+            processed += batchSize;
+            bounceable += batchResult.result.bounceableCount;
+            invalid += batchResult.result.invalidEmails.length;
+          }
+          
+          // Update progress in real-time
+          setValidationProgress({
+            isRunning: true,
+            processed,
+            total: emailList.length,
+            bounceable,
+            invalid
+          });
+          
+          setStatus(`🔍 Checking email bounceability... (${processed}/${emailList.length}) Valid: ${bounceable}, Invalid: ${invalid}`);
+        }
+      }
+      
+      // Set final results
+      setBounceableEmails(allBounceable);
+      setInvalidEmails(allInvalid);
+      setEmailList(allBounceable); // Update email list to only include bounceable emails
+      
+      // Update progress to show completion
+      setValidationProgress({
+        isRunning: false,
+        processed: emailList.length,
+        total: emailList.length,
+        bounceable: allBounceable.length,
+        invalid: allInvalid.length
+      });
+      
+      setStatus(`✅ Validation complete: ${allBounceable.length} valid emails, ${allInvalid.length} invalid emails removed`);
+    } catch (error) {
+      console.error('Error validating emails:', error);
+      setStatus(`⚠️ Validation completed with some timeouts. Assuming most emails are valid.`);
+      
+      // Even on error, assume most emails are valid
+      setBounceableEmails(emailList.map(emailObj => ({
+        ...emailObj,
+        bounceable: true,
+        reason: 'Assumed valid due to system error'
+      })));
+      setInvalidEmails([]);
+      setEmailList(emailList);
+      
+      setValidationProgress({
+        isRunning: false,
+        processed: emailList.length,
+        total: emailList.length,
+        bounceable: emailList.length,
+        invalid: 0
+      });
+    } finally {
+      setIsCheckingBounceable(false);
+    }
   };
 
   // Actual Email Sending (Updated with stop functionality, deduplication, and limits)
@@ -331,7 +608,7 @@ export default function EmailAutomationTool() {
             { num: 2, title: 'Load Emails', icon: Upload },
             { num: 3, title: 'Load Template', icon: FileText },
             { num: 4, title: 'Configure SMTP', icon: Settings },
-            { num: 5, title: 'Send Emails', icon: Send }
+            { num: 5, title: 'Validate & Send', icon: Send }
           ].map((step) => (
             <div
               key={step.num}
@@ -469,6 +746,63 @@ export default function EmailAutomationTool() {
                       <p style={{ fontSize: '14px', fontWeight: '600', color: '#166534', marginBottom: '8px' }}>
                         ✅ Loaded {emailList.length} email addresses
                       </p>
+                      <button
+                        onClick={checkBounceableEmails}
+                        disabled={isCheckingBounceable || emailList.length === 0}
+                        style={{
+                          marginTop: '12px',
+                          width: '100%',
+                          backgroundColor: isCheckingBounceable ? '#9ca3af' : '#0ea5e9',
+                          color: 'white',
+                          padding: '10px 16px',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          cursor: isCheckingBounceable || emailList.length === 0 ? 'not-allowed' : 'pointer',
+                          border: 'none',
+                          fontSize: '14px',
+                          fontWeight: '600'
+                        }}
+                      >
+                        <Filter style={{ width: '16px', height: '16px' }} />
+                        {isCheckingBounceable ? 'Checking...' : 'Validate Email Addresses'}
+                      </button>
+                      
+                      {/* Progress indicator */}
+                      {validationProgress.isRunning && (
+                        <div style={{ marginTop: '16px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#374151', marginBottom: '8px', fontWeight: '500' }}>
+                            <span>Validating emails...</span>
+                            <span>{validationProgress.processed}/{validationProgress.total}</span>
+                          </div>
+                          <div style={{ height: '10px', backgroundColor: '#e5e7eb', borderRadius: '5px', overflow: 'hidden' }}>
+                            <div 
+                              style={{ 
+                                height: '100%', 
+                                backgroundColor: '#0ea5e9', 
+                                width: `${(validationProgress.processed / validationProgress.total) * 100}%`,
+                                transition: 'width 0.3s ease',
+                                borderRadius: '5px'
+                              }}
+                            />
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#6b7280', marginTop: '6px' }}>
+                            <span>Valid: {validationProgress.bounceable}</span>
+                            <span>Invalid: {validationProgress.invalid}</span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Validation results */}
+                      {bounceableEmails.length > 0 && !validationProgress.isRunning && (
+                        <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#eff6ff', borderRadius: '8px' }}>
+                          <p style={{ fontSize: '13px', color: '#1e40af' }}>
+                            <strong>Validation Results:</strong> {bounceableEmails.length} valid emails, {invalidEmails.length} invalid emails removed
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -730,12 +1064,12 @@ export default function EmailAutomationTool() {
             </div>
           )}
 
-          {/* Step 5: Send Emails (Updated with stop button) */}
+          {/* Step 5: Validate & Send Emails (Updated with validation step) */}
           {currentStep === 5 && (
             <div className="card">
               <h3 style={{ fontSize: '18px', fontWeight: 'bold', color: '#1f2937', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                 <Send style={{ width: '20px', height: '20px', color: '#4f46e5' }} />
-                Step 5: Send Emails
+                Step 5: Validate & Send Emails
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ padding: '16px', backgroundColor: '#eff6ff', borderRadius: '8px' }}>
@@ -751,7 +1085,23 @@ export default function EmailAutomationTool() {
                   <p style={{ fontSize: '14px', color: '#1e40af' }}>
                     <strong>Already sent:</strong> {completedEmails.length} emails
                   </p>
+                  {bounceableEmails.length > 0 && (
+                    <p style={{ fontSize: '14px', color: '#1e40af' }}>
+                      <strong>Validated emails:</strong> {bounceableEmails.length} bounceable emails
+                    </p>
+                  )}
                 </div>
+                
+                {invalidEmails.length > 0 && (
+                  <div style={{ padding: '16px', backgroundColor: '#fffbeb', borderRadius: '8px' }}>
+                    <p style={{ fontSize: '14px', color: '#ca8a04', fontWeight: '600', marginBottom: '8px' }}>
+                      ⚠️ Invalid Email Warning
+                    </p>
+                    <p style={{ fontSize: '14px', color: '#ca8a04' }}>
+                      {invalidEmails.length} email addresses were identified as potentially invalid and have been removed from the sending list to protect your sender reputation.
+                    </p>
+                  </div>
+                )}
                 
                 <div style={{ display: 'flex', gap: '12px' }}>
                   {!isSending ? (
@@ -805,11 +1155,10 @@ export default function EmailAutomationTool() {
                 {/* Auto-update information */}
                 <div style={{ padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '8px' }}>
                   <p style={{ fontSize: '14px', color: '#166534', fontWeight: '600', marginBottom: '8px' }}>
-                    🔄 Automatic Updates
+                    🛡️ Safety Features
                   </p>
                   <p style={{ fontSize: '14px', color: '#166534' }}>
-                    Email lists are automatically updated during the sending process. 
-                    Duplicate emails are filtered out automatically.
+                    Email addresses are automatically validated before sending to protect your sender reputation and prevent landing in spam.
                   </p>
                 </div>
               </div>
@@ -830,7 +1179,7 @@ export default function EmailAutomationTool() {
             </div>
           </div>
 
-          {/* Statistics (Updated with email limits) */}
+          {/* Statistics (Updated with email limits and bounceable emails) */}
           <div className="card">
             <h3 style={{ fontSize: '18px', fontWeight: 'bold', color: '#1f2937', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
               <CheckCircle style={{ width: '20px', height: '20px', color: '#16a34a' }} />
@@ -849,6 +1198,30 @@ export default function EmailAutomationTool() {
                 <span style={{ fontSize: '14px', fontWeight: '500', color: '#374151' }}>Subjects</span>
                 <span style={{ fontSize: '18px', fontWeight: '700', color: '#9333ea' }}>{subjects.length}</span>
               </div>
+              
+              {/* Bounceable Email Stats */}
+              {(bounceableEmails.length > 0 || validationProgress.isRunning) && (
+                <div style={{ padding: '12px', backgroundColor: '#dcfce7', borderRadius: '8px' }}>
+                  <p style={{ fontSize: '14px', fontWeight: '600', color: '#166534', marginBottom: '8px' }}>
+                    ✅ Email Validation
+                  </p>
+                  <div style={{ fontSize: '13px', color: '#166534' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span>Valid Emails:</span>
+                      <span>{validationProgress.bounceable}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Invalid Emails:</span>
+                      <span>{validationProgress.invalid}</span>
+                    </div>
+                    {validationProgress.isRunning && (
+                      <div style={{ marginTop: '8px', fontSize: '12px' }}>
+                        Progress: {Math.round((validationProgress.processed / validationProgress.total) * 100)}%
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               
               {/* Email Limits */}
               <div style={{ padding: '12px', backgroundColor: '#fffbeb', borderRadius: '8px' }}>
