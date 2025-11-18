@@ -41,6 +41,41 @@ export default function EmailAutomationTool() {
   const emailCsvRef = useRef(null);
   const emailTemplateRef = useRef(null);
 
+  // Load data from server on component mount
+  useEffect(() => {
+    fetchEmailLists();
+  }, []);
+
+  // Fetch email lists from server
+  const fetchEmailLists = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/email-lists');
+      const data = await response.json();
+      setEmailList(data.pendingEmails || []);
+      setCompletedEmails(data.completedEmails || []);
+    } catch (error) {
+      console.error('Failed to fetch email lists:', error);
+    }
+  };
+
+  // Save email lists to server
+  const saveEmailLists = async (pendingEmails, completedEmails) => {
+    try {
+      await fetch('http://localhost:3001/update-email-lists', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          pendingEmails,
+          completedEmails
+        }),
+      });
+    } catch (error) {
+      console.error('Failed to save email lists:', error);
+    }
+  };
+
   // Fetch email stats periodically
   useEffect(() => {
     const fetchEmailStats = async () => {
@@ -472,17 +507,18 @@ export default function EmailAutomationTool() {
     const completed = [...completedEmails];
 
     for (let i = 0; i < remaining.length; i++) {
-      // Check if we should stop
+      const recipient = remaining[i];
+
+      // Check if we should stop before sending each email
       if (shouldStop) {
         setStatus(`⏹️ Sending stopped by user. ${i} emails sent.`);
         setIsSending(false);
         setShouldStop(false);
         return;
       }
-      
-      const recipient = remaining[i];
+
       const subject = getRandomSubject();
-      
+
       setStatus(`📧 Sending to ${recipient.email} (${i + 1}/${remaining.length})...`);
       
       try {
@@ -504,14 +540,18 @@ export default function EmailAutomationTool() {
         
         if (result.success) {
           // Mark as completed
-          completed.push({
+          const newCompleted = {
             ...recipient,
             subject: subject,
             sentAt: new Date().toLocaleString()
-          });
-          
+          };
+          completed.push(newCompleted);
+
           setCompletedEmails(completed);
           setEmailList(remaining.slice(i + 1));
+
+          // Save to server after each successful send
+          saveEmailLists(remaining.slice(i + 1), completed);
         } else {
           // Handle limit exceeded or other errors
           if (response.status === 429) {
@@ -801,6 +841,23 @@ export default function EmailAutomationTool() {
                           <p style={{ fontSize: '13px', color: '#1e40af' }}>
                             <strong>Validation Results:</strong> {bounceableEmails.length} valid emails, {invalidEmails.length} invalid emails removed
                           </p>
+                          {invalidEmails.length > 0 && (
+                            <div style={{ marginTop: '8px', fontSize: '12px', color: '#dc2626' }}>
+                              <strong>Invalid emails found:</strong>
+                              <div style={{ maxHeight: '100px', overflowY: 'auto', marginTop: '4px' }}>
+                                {invalidEmails.slice(0, 5).map((email, i) => (
+                                  <div key={i} style={{ marginBottom: '2px' }}>
+                                    • {email.email} - {email.reason}
+                                  </div>
+                                ))}
+                                {invalidEmails.length > 5 && (
+                                  <div style={{ fontStyle: 'italic' }}>
+                                    ... and {invalidEmails.length - 5} more
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
