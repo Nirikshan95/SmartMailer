@@ -1,10 +1,10 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import EmailAutomationTool from './email_automation_tool.jsx'
+import App from './src/App'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <EmailAutomationTool />
+    <App />
   </React.StrictMode>,
 )
