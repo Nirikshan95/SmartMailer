@@ -18,7 +18,7 @@ const Hero = () => {
                     Scale your outreach without the complexity.
                 </p>
                 <div className="hero-buttons">
-                    <Link to="/app" className="btn btn-primary">
+                    <Link to="/dashboard" className="btn btn-primary">
                         Start Now <ArrowRight size={20} style={{ marginLeft: '8px' }} />
                     </Link>
                     <a href="#demo" className="btn btn-outline">
