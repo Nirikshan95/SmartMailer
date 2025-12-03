@@ -1,6 +1,6 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { useDashboard } from './DashboardContext';
-import { Upload, FileText, Check, AlertCircle, X } from 'lucide-react';
+import { Upload, FileText, Check, AlertCircle, X, Plus, Trash2 } from 'lucide-react';
 
 const Prospects = () => {
     const {
@@ -19,10 +19,18 @@ const Prospects = () => {
         invalidEmails,
         setInvalidEmails,
         isCheckingBounceable,
-        setIsCheckingBounceable
+        setIsCheckingBounceable,
+        prospectLists,
+        selectedListId,
+        setSelectedListId,
+        createProspectList,
+        deleteProspectList,
+        addEmailsToList
     } = useDashboard();
 
     const emailCsvRef = useRef(null);
+    const [newListName, setNewListName] = useState('');
+    const [showCreateList, setShowCreateList] = useState(false);
 
     const handleFileUpload = (event) => {
         const file = event.target.files[0];
@@ -50,7 +58,7 @@ const Prospects = () => {
         }
     };
 
-    const handleImport = () => {
+    const handleImport = async () => {
         if (!columnMapping.email) {
             alert('Please map the Email column');
             return;
@@ -66,10 +74,32 @@ const Prospects = () => {
             company: companyIndex !== -1 ? row[companyIndex]?.trim() : ''
         })).filter(item => item.email && item.email.includes('@'));
 
-        setEmailList([...emailList, ...newEmails]);
+        if (selectedListId) {
+            await addEmailsToList(selectedListId, newEmails);
+        } else {
+            // Fallback if no list selected (shouldn't happen with default)
+            setEmailList([...emailList, ...newEmails]);
+        }
+
         setShowColumnMapping(false);
         setCsvHeaders([]);
         setCsvRows([]);
+    };
+
+    const handleCreateList = async () => {
+        if (!newListName.trim()) return;
+        const newList = await createProspectList(newListName);
+        if (newList) {
+            setSelectedListId(newList.id);
+            setNewListName('');
+            setShowCreateList(false);
+        }
+    };
+
+    const handleDeleteList = async (id) => {
+        if (window.confirm('Are you sure you want to delete this list?')) {
+            await deleteProspectList(id);
+        }
     };
 
     const checkBounceability = async () => {
@@ -82,9 +112,13 @@ const Prospects = () => {
             const batch = emailList.slice(i, i + batchSize);
             await Promise.all(batch.map(async (prospect) => {
                 try {
-                    const response = await fetch(`http://localhost:3001/validate-email?email=${prospect.email}`);
+                    const response = await fetch(`http://localhost:3001/validate-emails`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ emails: [prospect], useSSE: false })
+                    });
                     const data = await response.json();
-                    if (data.isValid) {
+                    if (data.bounceableEmails && data.bounceableEmails.length > 0) {
                         setBounceableEmails(prev => [...prev, prospect]);
                     } else {
                         setInvalidEmails(prev => [...prev, prospect]);
@@ -100,7 +134,44 @@ const Prospects = () => {
     return (
         <div>
             <div className="page-header">
-                <h1 className="page-title">Prospects</h1>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <h1 className="page-title">Prospects</h1>
+
+                    {/* List Selector */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <select
+                            className="select"
+                            style={{ width: '200px' }}
+                            value={selectedListId}
+                            onChange={(e) => setSelectedListId(e.target.value)}
+                        >
+                            {prospectLists.map(list => (
+                                <option key={list.id} value={list.id}>{list.name}</option>
+                            ))}
+                        </select>
+
+                        <button
+                            className="btn btn-outline"
+                            style={{ padding: '8px' }}
+                            onClick={() => setShowCreateList(!showCreateList)}
+                            title="Create New List"
+                        >
+                            <Plus size={20} />
+                        </button>
+
+                        {selectedListId !== 'default' && (
+                            <button
+                                className="btn-danger"
+                                style={{ padding: '8px', borderRadius: '8px' }}
+                                onClick={() => handleDeleteList(selectedListId)}
+                                title="Delete Current List"
+                            >
+                                <Trash2 size={20} />
+                            </button>
+                        )}
+                    </div>
+                </div>
+
                 <div style={{ display: 'flex', gap: '12px' }}>
                     <button
                         className="btn btn-outline"
@@ -125,6 +196,22 @@ const Prospects = () => {
                     </button>
                 </div>
             </div>
+
+            {/* Create List Modal/Inline */}
+            {showCreateList && (
+                <div className="card" style={{ marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <input
+                        type="text"
+                        className="input"
+                        placeholder="New List Name"
+                        value={newListName}
+                        onChange={(e) => setNewListName(e.target.value)}
+                        style={{ maxWidth: '300px' }}
+                    />
+                    <button className="btn btn-primary" onClick={handleCreateList}>Create</button>
+                    <button className="btn btn-outline" onClick={() => setShowCreateList(false)}>Cancel</button>
+                </div>
+            )}
 
             {showColumnMapping && (
                 <div className="card">
@@ -171,14 +258,16 @@ const Prospects = () => {
                         </div>
                     </div>
                     <button className="btn btn-primary" onClick={handleImport}>
-                        Confirm Import
+                        Confirm Import to "{prospectLists.find(l => l.id === selectedListId)?.name || 'Current List'}"
                     </button>
                 </div>
             )}
 
             <div className="card">
                 <div className="page-header" style={{ marginBottom: '16px' }}>
-                    <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Email List ({emailList.length})</h2>
+                    <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: 0 }}>
+                        {prospectLists.find(l => l.id === selectedListId)?.name} ({emailList.length})
+                    </h2>
                     {bounceableEmails.length > 0 && (
                         <span className="text-success" style={{ fontSize: '14px', fontWeight: '500' }}>
                             {bounceableEmails.length} Validated
@@ -187,9 +276,9 @@ const Prospects = () => {
                 </div>
 
                 {emailList.length > 0 ? (
-                    <div className="table-container">
+                    <div className="table-container" style={{ maxHeight: '600px', overflowY: 'auto' }}>
                         <table className="table">
-                            <thead>
+                            <thead style={{ position: 'sticky', top: 0, backgroundColor: 'var(--bg-card)', zIndex: 1 }}>
                                 <tr>
                                     <th>Email</th>
                                     <th>Name</th>
@@ -234,7 +323,7 @@ const Prospects = () => {
                 ) : (
                     <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-secondary)' }}>
                         <FileText size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
-                        <p>No prospects added yet. Import a CSV file to get started.</p>
+                        <p>No prospects in this list. Import a CSV file to get started.</p>
                     </div>
                 )}
             </div>

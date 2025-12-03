@@ -11,7 +11,8 @@ const Campaigns = () => {
         emailList, completedEmails,
         emailContent,
         subjects, setSubjects,
-        fetchEmailLists, saveEmailLists
+        fetchEmailLists, saveEmailLists,
+        prospectLists, selectedListId, setSelectedListId
     } = useDashboard();
 
     const subjectFileRef = useRef(null);
@@ -110,9 +111,9 @@ const Campaigns = () => {
         }
 
         setIsSending(false);
-        setCompletedEmails(completed);
-        setEmailList([]); // All sent (or filtered out)
-        saveEmailLists([], completed);
+        // setCompletedEmails(completed);
+        // setEmailList([]); // All sent (or filtered out)
+        // saveEmailLists([], completed);
         setStatus(`✅ All emails sent successfully!`);
     };
 
@@ -173,6 +174,19 @@ const Campaigns = () => {
                     <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Send size={20} /> Execution
                     </h3>
+
+                    <div style={{ marginBottom: '24px' }}>
+                        <label className="label">Target List</label>
+                        <select
+                            className="select"
+                            value={selectedListId}
+                            onChange={(e) => setSelectedListId(e.target.value)}
+                        >
+                            {prospectLists.map(list => (
+                                <option key={list.id} value={list.id}>{list.name} ({list.emails.length})</option>
+                            ))}
+                        </select>
+                    </div>
 
                     <div style={{ marginBottom: '24px' }}>
                         <label className="label">Subject Lines</label>

@@ -9,7 +9,7 @@ export const useDashboard = () => {
 export const DashboardProvider = ({ children }) => {
     // State from original tool
     const [subjects, setSubjects] = useState([]);
-    const [emailList, setEmailList] = useState([]);
+    const [emailList, setEmailList] = useState([]); // Deprecated in favor of selected list, but kept for compatibility
     const [completedEmails, setCompletedEmails] = useState([]);
     const [emailContent, setEmailContent] = useState('');
     const [smtpConfig, setSmtpConfig] = useState({
@@ -52,10 +52,19 @@ export const DashboardProvider = ({ children }) => {
         invalid: 0
     });
 
+    // Prospect Lists State
+    const [prospectLists, setProspectLists] = useState([]);
+    const [selectedListId, setSelectedListId] = useState('default');
+
+    // Campaigns State
+    const [campaigns, setCampaigns] = useState([]);
+
     // Load data on mount
     useEffect(() => {
         fetchEmailLists();
         fetchEmailStats();
+        fetchProspectLists();
+        fetchCampaigns();
         const interval = setInterval(fetchEmailStats, 30000);
         return () => clearInterval(interval);
     }, []);
@@ -64,10 +73,157 @@ export const DashboardProvider = ({ children }) => {
         try {
             const response = await fetch('http://localhost:3001/email-lists');
             const data = await response.json();
-            setEmailList(data.pendingEmails || []);
+            // setEmailList(data.pendingEmails || []); // No longer primary source
             setCompletedEmails(data.completedEmails || []);
         } catch (error) {
             console.error('Failed to fetch email lists:', error);
+        }
+    };
+
+    const fetchProspectLists = async () => {
+        try {
+            const response = await fetch('http://localhost:3001/prospect-lists');
+            const data = await response.json();
+            setProspectLists(data);
+
+            // If currently selected list is not in fetched lists (e.g. deleted), select default
+            if (selectedListId && !data.find(l => l.id === selectedListId)) {
+                setSelectedListId('default');
+            }
+        } catch (error) {
+            console.error('Failed to fetch prospect lists:', error);
+        }
+    };
+
+    const createProspectList = async (name) => {
+        try {
+            const response = await fetch('http://localhost:3001/prospect-lists', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            const data = await response.json();
+            if (data.success) {
+                setProspectLists([...prospectLists, data.list]);
+                return data.list;
+            }
+        } catch (error) {
+            console.error('Failed to create prospect list:', error);
+        }
+    };
+
+    const deleteProspectList = async (id) => {
+        try {
+            const response = await fetch(`http://localhost:3001/prospect-lists/${id}`, {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+            if (data.success) {
+                setProspectLists(prospectLists.filter(l => l.id !== id));
+                if (selectedListId === id) setSelectedListId('default');
+            }
+        } catch (error) {
+            console.error('Failed to delete prospect list:', error);
+        }
+    };
+
+    const addEmailsToList = async (listId, emails) => {
+        try {
+            const response = await fetch(`http://localhost:3001/prospect-lists/${listId}/add`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails })
+            });
+            const data = await response.json();
+            if (data.success) {
+                // Update local state
+                setProspectLists(prospectLists.map(list =>
+                    list.id === listId ? data.list : list
+                ));
+            }
+            return data;
+        } catch (error) {
+            console.error('Failed to add emails to list:', error);
+            throw error;
+        }
+    };
+
+    const updateListEmails = async (listId, emails) => {
+        try {
+            const response = await fetch(`http://localhost:3001/prospect-lists/${listId}/emails`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails })
+            });
+            const data = await response.json();
+            if (data.success) {
+                setProspectLists(prospectLists.map(list =>
+                    list.id === listId ? data.list : list
+                ));
+            }
+        } catch (error) {
+            console.error('Failed to update list emails:', error);
+        }
+    };
+
+    // Campaign Management Functions
+    const fetchCampaigns = async () => {
+        try {
+            const response = await fetch('http://localhost:3001/campaigns');
+            const data = await response.json();
+            setCampaigns(data);
+        } catch (error) {
+            console.error('Failed to fetch campaigns:', error);
+        }
+    };
+
+    const createCampaign = async (campaignData) => {
+        try {
+            const response = await fetch('http://localhost:3001/campaigns', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(campaignData)
+            });
+            const data = await response.json();
+            if (data.success) {
+                setCampaigns([...campaigns, data.campaign]);
+                return data.campaign;
+            }
+        } catch (error) {
+            console.error('Failed to create campaign:', error);
+            throw error;
+        }
+    };
+
+    const updateCampaign = async (id, updates) => {
+        try {
+            const response = await fetch(`http://localhost:3001/campaigns/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates)
+            });
+            const data = await response.json();
+            if (data.success) {
+                setCampaigns(campaigns.map(c => c.id === id ? data.campaign : c));
+                return data.campaign;
+            }
+        } catch (error) {
+            console.error('Failed to update campaign:', error);
+            throw error;
+        }
+    };
+
+    const deleteCampaign = async (id) => {
+        try {
+            const response = await fetch(`http://localhost:3001/campaigns/${id}`, {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+            if (data.success) {
+                setCampaigns(campaigns.filter(c => c.id !== id));
+            }
+        } catch (error) {
+            console.error('Failed to delete campaign:', error);
         }
     };
 
@@ -95,9 +251,14 @@ export const DashboardProvider = ({ children }) => {
         }
     };
 
+    // Derived state: Current list emails
+    const currentList = prospectLists.find(l => l.id === selectedListId) || { emails: [] };
+    const currentEmails = currentList.emails || [];
+
     const value = {
         subjects, setSubjects,
-        emailList, setEmailList,
+        emailList: currentEmails, // Map current list emails to emailList for compatibility
+        setEmailList: (emails) => updateListEmails(selectedListId, emails), // Map setter to update current list
         completedEmails, setCompletedEmails,
         emailContent, setEmailContent,
         smtpConfig, setSmtpConfig,
@@ -113,6 +274,11 @@ export const DashboardProvider = ({ children }) => {
         invalidEmails, setInvalidEmails,
         isCheckingBounceable, setIsCheckingBounceable,
         validationProgress, setValidationProgress,
+        prospectLists, setProspectLists,
+        selectedListId, setSelectedListId,
+        createProspectList, deleteProspectList, addEmailsToList, updateListEmails,
+        campaigns, setCampaigns,
+        fetchCampaigns, createCampaign, updateCampaign, deleteCampaign,
         fetchEmailLists,
         saveEmailLists,
         fetchEmailStats

@@ -7,6 +7,7 @@ import Prospects from './components/dashboard/Prospects';
 import Templates from './components/dashboard/Templates';
 import Campaigns from './components/dashboard/Campaigns';
 import Analytics from './components/dashboard/Analytics';
+import Settings from './components/dashboard/Settings';
 
 const App = () => {
     return (
@@ -19,6 +20,7 @@ const App = () => {
                     <Route path="templates" element={<Templates />} />
                     <Route path="campaigns" element={<Campaigns />} />
                     <Route path="analytics" element={<Analytics />} />
+                    <Route path="settings" element={<Settings />} />
                 </Route>
                 {/* Redirect old /app route to dashboard */}
                 <Route path="/app" element={<Navigate to="/dashboard" replace />} />
