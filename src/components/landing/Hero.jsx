@@ -18,9 +18,9 @@ const Hero = () => {
                     Scale your outreach without the complexity.
                 </p>
                 <div className="hero-buttons">
-                    <Link to="/dashboard" className="btn btn-primary">
+                    <a href="http://localhost:3001/auth/google" className="btn btn-primary">
                         Start Now <ArrowRight size={20} style={{ marginLeft: '8px' }} />
-                    </Link>
+                    </a>
                     <a href="#demo" className="btn btn-outline">
                         Try Demo <Play size={20} style={{ marginLeft: '8px' }} />
                     </a>

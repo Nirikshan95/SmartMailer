@@ -28,7 +28,7 @@ const Footer = () => {
                             <li><a href="#features">Features</a></li>
                             <li><a href="#pricing">Pricing</a></li>
                             <li><a href="#faq">FAQ</a></li>
-                            <li><Link to="/app">Start Sending</Link></li>
+                            <li><a href="http://localhost:3001/auth/google">Start Sending</a></li>
                         </ul>
                     </div>
 
