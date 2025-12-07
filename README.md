@@ -1,4 +1,4 @@
-# Email Automation Tool
+# SmartMailer - Email Automation Tool
 
 An efficient email automation solution built with Node.js, React, and Vite. This tool allows you to send personalized emails at scale while respecting email sending limits to maintain good sender reputation.
 
