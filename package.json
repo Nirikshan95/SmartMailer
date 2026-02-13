@@ -1,33 +1,14 @@
 {
-  "name": "email_automation",
+  "name": "email-automation",
   "version": "1.0.0",
+  "description": "Email Automation Tool - Monorepo",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "server": "node server.js"
+    "install:all": "cd frontend && npm install && cd ../backend && npm install",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "build:frontend": "cd frontend && npm run build"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "description": "",
-  "dependencies": {
-    "cors": "^2.8.5",
-    "deep-email-validator": "^0.1.21",
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
-    "googleapis": "^166.0.0",
-    "jsonwebtoken": "^9.0.2",
-    "lucide-react": "^0.545.0",
-    "nodemailer": "^7.0.9",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-router-dom": "^7.9.6",
-    "validator": "^13.15.15",
-    "zod": "^4.1.12"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^5.0.4",
-    "vite": "^7.1.9"
-  }
+  "license": "ISC"
 }

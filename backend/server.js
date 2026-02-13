@@ -8,7 +8,7 @@ const validator = require('validator');
 const deepEmailValidator = require('deep-email-validator');
 const dns = require('dns');
 const net = require('net');
-const { sendEmailSchema, validateEmailsSchema, updateEmailListsSchema } = require('./src/schemas/validation');
+const { sendEmailSchema, validateEmailsSchema, updateEmailListsSchema } = require('./server/utils/validation');
 const googleDriveService = require('./server/services/googleDriveService');
 const licenseService = require('./server/services/licenseService');
 
@@ -19,10 +19,10 @@ const PORT = process.env.PORT || 3001;
 googleDriveService.initialize();
 
 // Load configuration
-const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'config.json'), 'utf8'));
 
 // File to store invalid domains
-const INVALID_DOMAINS_FILE = path.join(__dirname, 'invalid_domains.json');
+const INVALID_DOMAINS_FILE = path.join(__dirname, 'data', 'invalid_domains.json');
 
 // Load invalid domains
 let invalidDomains = [];
@@ -58,7 +58,7 @@ app.use(express.json());
 app.use(express.static('.'));
 
 // File to store email sending records (Legacy/Fallback)
-const EMAIL_RECORDS_FILE = path.join(__dirname, 'email_records.json');
+const EMAIL_RECORDS_FILE = path.join(__dirname, 'data', 'email_records.json');
 
 // Initialize email records
 let emailRecords = {
@@ -256,6 +256,28 @@ app.get('/settings/license', (req, res) => {
   res.json(currentLicense);
 });
 
+app.post('/verify-smtp', async (req, res) => {
+  try {
+    const { smtpConfig } = req.body;
+    if (!smtpConfig || !smtpConfig.server || !smtpConfig.email || !smtpConfig.password) {
+      return res.status(400).json({ success: false, message: 'Invalid SMTP configuration' });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: smtpConfig.server,
+      port: parseInt(smtpConfig.port || '587'),
+      secure: parseInt(smtpConfig.port) === 465,
+      auth: { user: smtpConfig.email, pass: smtpConfig.password }
+    });
+
+    await transporter.verify();
+    res.json({ success: true, message: 'SMTP connection verified successfully' });
+  } catch (error) {
+    console.error('SMTP Verification Error:', error);
+    res.status(400).json({ success: false, message: 'Connection failed: ' + error.message });
+  }
+});
+
 app.post('/send-email', async (req, res) => {
   try {
     const validatedData = sendEmailSchema.parse(req.body);
@@ -313,12 +335,27 @@ app.post('/send-email', async (req, res) => {
 
 app.get('/email-stats', async (req, res) => {
   cleanOldEmailRecords();
+
+  // Get last 7 days history
+  const history = [];
+  const today = new Date();
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    history.push({
+      date: dateStr,
+      count: emailRecords.dailyCounts[dateStr] || 0
+    });
+  }
+
   res.json({
     emailsToday: await getEmailsSentToday(),
     emailsThisHour: await getEmailsSentThisHour(),
     maxPerDay: currentLicense.limits.maxPerDay,
     maxPerHour: currentLicense.limits.maxPerHour,
-    plan: currentLicense.plan
+    plan: currentLicense.plan,
+    history: history
   });
 });
 

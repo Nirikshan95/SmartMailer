@@ -6,14 +6,47 @@ An efficient email automation solution built with Node.js, React, and Vite. This
 
 This tool is currently designed for personal use and needs to be scaled for production. This README documents all existing features and provides guidance for production migration.
 
+## Project Structure
+
+The codebase is now organized into separate frontend and backend directories:
+
+```
+Email_automation/
+├── frontend/              # React + Vite frontend application
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── schemas/
+│   │   └── App.jsx
+│   ├── index.html
+│   ├── vite.config.js
+│   ├── postcss.config.js
+│   └── package.json
+├── backend/               # Node.js + Express backend server
+│   ├── server/
+│   │   ├── controllers/
+│   │   ├── routes/
+│   │   ├── services/
+│   │   ├── config/
+│   │   └── utils/
+│   ├── data/             # Data files (JSON, CSV, templates)
+│   ├── server.js
+│   ├── .env.example
+│   └── package.json
+├── package.json          # Root package.json with convenience scripts
+├── .gitignore
+└── README.md
+```
+
 ## Architecture Overview
 
 ### Frontend (React + Vite)
 - **Framework**: React 19.2.0 with Vite 7.1.9
 - **UI Components**: Custom components with Lucide React icons
 - **State Management**: React hooks (useState, useEffect, useRef)
-- **Styling**: Inline styles with CSS file (index.css)
+- **Styling**: CSS files with modern design
 - **Port**: 5173 (development)
+- **Location**: `frontend/` directory
 
 ### Backend (Node.js + Express)
 - **Framework**: Express 5.1.0
@@ -21,7 +54,8 @@ This tool is currently designed for personal use and needs to be scaled for prod
 - **Email Validation**: deep-email-validator 0.1.21 + validator 13.15.15
 - **CORS**: Enabled for local development
 - **Port**: 3001
-- **Data Storage**: JSON files (email_records.json, completed_emails.json)
+- **Data Storage**: JSON files in `backend/data/`
+- **Location**: `backend/` directory
 
 ## Current Features
 
@@ -72,8 +106,8 @@ This tool is currently designed for personal use and needs to be scaled for prod
 - Rate limit monitoring
 
 ### 7. Data Management
-- **Completed Emails**: Stored in completed_emails.json
-- **Email Records**: Stored in email_records.json (daily/hourly counts)
+- **Completed Emails**: Stored in backend/data/completed_emails.json
+- **Email Records**: Stored in backend/data/email_records.json (daily/hourly counts)
 - **Download Options**: Export completed and remaining emails as CSV
 - **Automatic Cleanup**: Prevents storage bloat
 
@@ -93,17 +127,24 @@ This tool is currently designed for personal use and needs to be scaled for prod
 ### Installation
 
 ```bash
-npm install
+# Install dependencies for both frontend and backend
+npm run install:all
+
+# Or install manually:
+cd frontend && npm install
+cd ../backend && npm install
 ```
 
 ### Running the Application
 
 ```bash
-# Terminal 1: Start backend server
-node server.js
+# Option 1: Run both servers from root directory
+npm run dev:backend    # Terminal 1: Start backend server
+npm run dev:frontend   # Terminal 2: Start frontend dev server
 
-# Terminal 2: Start frontend dev server
-npm run dev
+# Option 2: Run from individual directories
+cd backend && npm run dev     # Terminal 1
+cd frontend && npm run dev    # Terminal 2
 ```
 
 - Frontend: http://localhost:5173
@@ -116,23 +157,6 @@ npm run dev
 3. **Load Template**: Upload HTML email template with {{name}} placeholders
 4. **Configure SMTP**: Enter Gmail credentials (use App Password, not regular password)
 5. **Validate & Send**: Validate emails, then start sending with real-time progress
-
-### File Structure
-```
-├── server.js                    # Express backend API
-├── email_automation_tool.jsx    # Main React component
-├── main.jsx                     # React entry point
-├── index.html                   # HTML entry
-├── index.css                    # Styles
-├── config.json                  # Configuration (limits, defaults, retry)
-├── email_records.json           # Send tracking (auto-generated)
-├── completed_emails.json        # Completed sends (auto-generated)
-├── subjects.txt                 # Subject lines (user-provided)
-├── emails.csv                   # Recipient list (user-provided)
-├── email_template.html          # Email template (user-provided)
-├── package.json                 # Dependencies
-└── vite.config.js              # Vite configuration
-```
 
 ## Configuration (config.json)
 
