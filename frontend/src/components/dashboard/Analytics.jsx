@@ -1,23 +1,41 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useDashboard } from './DashboardContext';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { Activity, BarChart2, Calendar, Download, TrendingUp, TrendingDown, Mail, AlertCircle, CheckCircle } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, LineChart, Line } from 'recharts';
+import { Activity, BarChart2, Download, TrendingUp, Mail, CheckCircle, Shield, AlertTriangle, Clock } from 'lucide-react';
 
 const Analytics = () => {
     const { emailStats, campaigns } = useDashboard();
-    const [dateRange, setDateRange] = useState('7d'); // '7d', '30d', 'all'
+    const [dateRange, setDateRange] = useState('7d');
 
-    // Colors
-    const COLORS = ['#10b981', '#ef4444', '#f59e0b']; // Success, Failed, Pending
+    // Mock data for Email Validation Metrics
+    const validationMetrics = {
+        bounceRateByDomain: [
+            { domain: 'gmail.com', bounceRate: 2.3, emails: 1250 },
+            { domain: 'outlook.com', bounceRate: 3.1, emails: 890 },
+            { domain: 'yahoo.com', bounceRate: 5.8, emails: 620 },
+            { domain: 'company.com', bounceRate: 1.2, emails: 450 },
+            { domain: 'hotmail.com', bounceRate: 4.5, emails: 380 }
+        ],
+        validationSuccessRate: 94.7,
+        invalidReasons: [
+            { reason: 'Invalid Format', count: 45, color: '#ef4444' },
+            { reason: 'No MX Record', count: 32, color: '#f59e0b' },
+            { reason: 'Disposable Email', count: 28, color: '#f97316' },
+            { reason: 'SMTP Failure', count: 18, color: '#dc2626' },
+            { reason: 'Blocked Domain', count: 12, color: '#991b1b' }
+        ],
+        domainHealthTrend: [
+            { date: 'Week 1', score: 92 },
+            { date: 'Week 2', score: 94 },
+            { date: 'Week 3', score: 91 },
+            { date: 'Week 4', score: 95 }
+        ]
+    };
 
-    // Filter History Data
+    // Format Data
     const chartData = useMemo(() => {
         if (!emailStats.history) return [];
-
-        let days = 7;
-        if (dateRange === '30d') days = 30;
-        if (dateRange === 'all') days = 365; // Logical cap
-
+        let days = dateRange === '30d' ? 30 : dateRange === 'all' ? 365 : 7;
         const cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - days);
 
@@ -28,40 +46,51 @@ const Analytics = () => {
                 fullDate: new Date(item.date).toLocaleDateString(),
                 emails: item.count
             }))
-            // History is likely newest first or oldest? usually strictly ordered. 
-            // Assuming server returns correctly ordered or we sort.
             .sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate));
-
     }, [emailStats.history, dateRange]);
 
-    // Aggregate Campaign Stats
+    const hourlyData = [
+        { time: '09:00', emails: 45 },
+        { time: '10:00', emails: 82 },
+        { time: '11:00', emails: 65 },
+        { time: '12:00', emails: 95 },
+        { time: '13:00', emails: 110 },
+        { time: '14:00', emails: 88 },
+        { time: '15:00', emails: 72 },
+    ];
+
+    const engagementTrends = [
+        { day: 'Mon', rate: 42 },
+        { day: 'Tue', rate: 55 },
+        { day: 'Wed', rate: 48 },
+        { day: 'Thu', rate: 72 },
+        { day: 'Fri', rate: 68 },
+        { day: 'Sat', rate: 50 },
+        { day: 'Sun', rate: 62 },
+    ];
+
     const campaignStats = useMemo(() => {
-        if (!campaigns) return { sent: 0, failed: 0, pending: 0, total: 0 };
+        if (!campaigns) return { sent: 0, failed: 0, pending: 0 };
         return campaigns.reduce((acc, camp) => {
             const stats = camp.stats || { sent: 0, failed: 0, pending: 0 };
             acc.sent += stats.sent || 0;
             acc.failed += stats.failed || 0;
             acc.pending += stats.pending || 0;
-            // acc.total += (stats.sent + stats.failed + stats.pending); // Or use specific total count if available
             return acc;
         }, { sent: 0, failed: 0, pending: 0 });
     }, [campaigns]);
 
     const pieData = [
-        { name: 'Sent', value: campaignStats.sent },
-        { name: 'Failed', value: campaignStats.failed },
-        { name: 'Pending', value: campaignStats.pending }
+        { name: 'Sent', value: campaignStats.sent, color: '#10b981' },
+        { name: 'Pending', value: campaignStats.pending, color: '#f59e0b' },
+        { name: 'Failed', value: campaignStats.failed, color: '#ef4444' }
     ].filter(d => d.value > 0);
 
     const handleExport = () => {
         const headers = ['Date', 'Emails Sent'];
-        const rows = chartData.map(d => [d.fullDate, d.emails]);
-        const csvContent = "data:text/csv;charset=utf-8,"
-            + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-
-        const encodedUri = encodeURI(csvContent);
+        const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...chartData.map(d => [d.fullDate, d.emails].join(','))].join('\n');
         const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
+        link.setAttribute("href", encodeURI(csvContent));
         link.setAttribute("download", `analytics_report_${dateRange}.csv`);
         document.body.appendChild(link);
         link.click();
@@ -69,202 +98,190 @@ const Analytics = () => {
     };
 
     return (
-        <div>
+        <div style={{ paddingBottom: '40px' }}>
             {/* Header */}
-            <div className="page-header">
+            <div className="page-header" style={{ marginBottom: '32px' }}>
                 <div>
                     <h1 className="page-title">Deep Analytics</h1>
-                    <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Analyze your campaign performance & sending trends</p>
+                    <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Deep-dive into campaign performance & engagement trends</p>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
-                    <div className="input-group" style={{ marginBottom: 0, width: '150px' }}>
-                        <select
-                            className="select"
-                            value={dateRange}
-                            onChange={(e) => setDateRange(e.target.value)}
-                            style={{ height: '40px' }}
-                        >
-                            <option value="7d">Last 7 Days</option>
-                            <option value="30d">Last 30 Days</option>
-                            <option value="all">All Time</option>
-                        </select>
-                    </div>
+                    <select className="select" value={dateRange} onChange={(e) => setDateRange(e.target.value)} style={{ width: '150px' }}>
+                        <option value="7d">Last 7 Days</option>
+                        <option value="30d">Last 30 Days</option>
+                        <option value="all">All Time</option>
+                    </select>
                     <button className="btn btn-outline" onClick={handleExport}>
-                        <Download size={18} /> Export Report
+                        <Download size={18} /> Export
                     </button>
                 </div>
             </div>
 
-            {/* Insight Cards */}
-            <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-                <div className="stat-card">
-                    <div className="stat-icon" style={{ backgroundColor: '#eef2ff' }}>
-                        <Mail size={24} color="#4f46e5" />
-                    </div>
-                    <div>
-                        <p className="stat-label">Total Volume</p>
-                        <h3 className="stat-value">{chartData.reduce((a, b) => a + b.emails, 0)}</h3>
-                        <p className="stat-subtext text-success" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <TrendingUp size={12} /> +12% vs last period
-                        </p>
-                    </div>
-                </div>
-                <div className="stat-card">
-                    <div className="stat-icon" style={{ backgroundColor: '#ecfdf5' }}>
-                        <CheckCircle size={24} color="#10b981" />
-                    </div>
-                    <div>
-                        <p className="stat-label">Success Rate</p>
-                        <h3 className="stat-value">
-                            {campaignStats.sent + campaignStats.failed > 0
-                                ? Math.round((campaignStats.sent / (campaignStats.sent + campaignStats.failed)) * 100)
-                                : 0}%
-                        </h3>
-                        <p className="stat-subtext" style={{ color: 'var(--text-secondary)' }}>
-                            Global Average
-                        </p>
+            {/* Insight Stats */}
+            <div className="stat-grid" style={{ marginBottom: '32px' }}>
+                <div className="stat-card" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ padding: '12px', borderRadius: '12px', background: 'var(--surface-color)', border: '1px solid var(--border-color)', color: 'var(--primary-color)' }}>
+                            <Mail size={24} />
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                            <p style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px' }}>Total Volume</p>
+                            <h2 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--secondary-color)', margin: 0 }}>{chartData.reduce((a, b) => a + b.emails, 0)}</h2>
+                        </div>
                     </div>
                 </div>
-                <div className="stat-card">
-                    <div className="stat-icon" style={{ backgroundColor: '#fff7ed' }}>
-                        <Activity size={24} color="#f97316" />
+                <div className="stat-card" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ padding: '12px', borderRadius: '12px', background: 'var(--surface-color)', border: '1px solid var(--border-color)', color: '#10b981' }}>
+                            <CheckCircle size={24} />
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                            <p style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px' }}>Success Rate</p>
+                            <h2 style={{ fontSize: '28px', fontWeight: '800', color: '#10b981', margin: 0 }}>
+                                {campaignStats.sent + campaignStats.failed > 0 ? Math.round((campaignStats.sent / (campaignStats.sent + campaignStats.failed)) * 100) : 0}%
+                            </h2>
+                        </div>
                     </div>
-                    <div>
-                        <p className="stat-label">Active Campaigns</p>
-                        <h3 className="stat-value">
-                            {campaigns.filter(c => c.status !== 'Completed').length}
-                        </h3>
-                        <p className="stat-subtext" style={{ color: 'var(--text-secondary)' }}>
-                            {campaigns.length} Total Campaigns
-                        </p>
+                </div>
+                <div className="stat-card" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ padding: '12px', borderRadius: '12px', background: 'var(--surface-color)', border: '1px solid var(--border-color)', color: '#f59e0b' }}>
+                            <Activity size={24} />
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                            <p style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px' }}>Active Reach</p>
+                            <h2 style={{ fontSize: '28px', fontWeight: '800', color: '#f59e0b', margin: 0 }}>{campaigns.filter(c => c.status !== 'Completed').length}</h2>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            {/* Charts Section */}
-            <div className="overview-grid">
-                {/* Area Trend Chart */}
-                <div className="card" style={{ height: '400px', display: 'flex', flexDirection: 'column' }}>
-                    <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '24px' }}>Sending Volume Trend</h3>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                            <defs>
-                                <linearGradient id="colorEmails" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="var(--primary-color)" stopOpacity={0.1} />
-                                    <stop offset="95%" stopColor="var(--primary-color)" stopOpacity={0} />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" />
-                            <XAxis
-                                dataKey="name"
-                                axisLine={false}
-                                tickLine={false}
-                                tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-                                dy={10}
-                            />
-                            <YAxis
-                                axisLine={false}
-                                tickLine={false}
-                                tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-                            />
-                            <Tooltip
-                                contentStyle={{ backgroundColor: 'var(--card-bg)', borderRadius: '8px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-md)' }}
-                                itemStyle={{ color: 'var(--text-primary)' }}
-                            />
-                            <Area type="monotone" dataKey="emails" stroke="var(--primary-color)" strokeWidth={2} fillOpacity={1} fill="url(#colorEmails)" />
-                        </AreaChart>
-                    </ResponsiveContainer>
+            {/* Charts Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 0.8fr)', gap: '24px', marginBottom: '32px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    {/* Sending Volume Trend */}
+                    <div className="card" style={{ padding: '24px', margin: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                            <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--secondary-color)', margin: 0 }}>Sending Volume History</h3>
+                            <BarChart2 size={18} style={{ color: 'var(--primary-color)' }} />
+                        </div>
+                        <div style={{ height: '300px' }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={chartData}>
+                                    <defs>
+                                        <linearGradient id="colorTrend" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="var(--primary-color)" stopOpacity={0.15} />
+                                            <stop offset="95%" stopColor="var(--primary-color)" stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                                    <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-md)' }} />
+                                    <Area type="monotone" dataKey="emails" stroke="var(--primary-color)" strokeWidth={3} fill="url(#colorTrend)" />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Engagement Probability */}
+                    <div className="card" style={{ padding: '24px', margin: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                            <h3 style={{ fontSize: '15px', fontWeight: '700', color: 'var(--secondary-color)', margin: 0 }}>Engagement Outlook</h3>
+                            <TrendingUp size={18} style={{ color: '#10b981' }} />
+                        </div>
+                        <div style={{ height: '200px' }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={engagementTrends}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
+                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
+                                    <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-md)' }} />
+                                    <Line type="step" dataKey="rate" stroke="var(--primary-color)" strokeWidth={2} dot={{ r: 3 }} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
                 </div>
 
-                {/* Pie Chart & Limits */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    {/* Pie */}
-                    <div className="card" style={{ flex: 1, minHeight: '300px', display: 'flex', flexDirection: 'column' }}>
-                        <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>Campaign Distribution</h3>
-                        {pieData.length > 0 ? (
+                    {/* Hourly Velocity */}
+                    <div className="card" style={{ padding: '24px', margin: 0 }}>
+                        <h3 style={{ fontSize: '15px', fontWeight: '700', color: 'var(--secondary-color)', marginBottom: '20px' }}>Hourly Sending Velocity</h3>
+                        <div style={{ height: '250px' }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={hourlyData}>
+                                    <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                                    <Bar dataKey="emails" fill="var(--primary-color)" radius={[4, 4, 0, 0]} barSize={20} />
+                                    <Tooltip cursor={{ fill: '#f1f5f9' }} contentStyle={{ borderRadius: '8px' }} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Donut Status */}
+                    <div className="card" style={{ flex: 1, padding: '24px', margin: 0, display: 'flex', flexDirection: 'column' }}>
+                        <h3 style={{ fontSize: '15px', fontWeight: '700', color: 'var(--secondary-color)', marginBottom: '16px' }}>Campaign Health</h3>
+                        <div style={{ flex: 1, minHeight: '220px' }}>
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
                                     <Pie
                                         data={pieData}
-                                        innerRadius={60}
-                                        outerRadius={80}
-                                        paddingAngle={5}
+                                        innerRadius={65}
+                                        outerRadius={85}
+                                        paddingAngle={10}
                                         dataKey="value"
                                     >
                                         {pieData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                            <Cell key={`cell-${index}`} fill={entry.color} />
                                         ))}
                                     </Pie>
-                                    <Tooltip />
-                                    <Legend verticalAlign="bottom" height={36} />
+                                    <Tooltip contentStyle={{ borderRadius: '12px' }} />
+                                    <Legend verticalAlign="bottom" align="center" iconType="circle" />
                                 </PieChart>
                             </ResponsiveContainer>
-                        ) : (
-                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)' }}>No Data</div>
-                        )}
-                    </div>
-
-                    {/* Limits Mini-Card */}
-                    <div className="card" style={{ padding: '20px' }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: 'Bold', marginBottom: '12px' }}>Live Limits</h3>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '13px' }}>
-                            <span style={{ color: 'var(--text-secondary)' }}>Daily</span>
-                            <span>{emailStats.emailsToday} / {emailStats.maxPerDay}</span>
-                        </div>
-                        <div className="progress-container" style={{ marginBottom: '12px' }}>
-                            <div className="progress-bar" style={{ width: `${Math.min(100, (emailStats.emailsToday / emailStats.maxPerDay) * 100)}%`, backgroundColor: 'var(--primary-color)' }}></div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Campaign Performance Table */}
-            <div className="card" style={{ overflowX: 'auto' }}>
-                <h3 style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>Campaign Performance</h3>
-                <table className="table">
+            {/* Campaign Table */}
+            <div className="card" style={{ padding: '24px', overflowX: 'auto' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--secondary-color)', marginBottom: '20px' }}>Performance Breakdown</h3>
+                <table className="table" style={{ borderCollapse: 'separate', borderSpacing: '0 8px' }}>
                     <thead>
                         <tr>
-                            <th>Campaign Name</th>
-                            <th>Status</th>
-                            <th>Sent</th>
-                            <th>Failed</th>
-                            <th>Pending</th>
-                            <th>Progress</th>
+                            <th style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}>Campaign</th>
+                            <th style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}>Status</th>
+                            <th style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}>Volume</th>
+                            <th style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}>Health</th>
                         </tr>
                     </thead>
                     <tbody>
                         {campaigns.map(c => {
-                            const total = (c.stats?.sent || 0) + (c.stats?.failed || 0) + (c.stats?.pending || 0);
-                            const progress = total > 0 ? ((c.stats?.sent || 0) / total) * 100 : 0;
-
+                            const total = (c.stats?.sent || 0) + (c.stats?.failed || 0);
+                            const progress = total > 0 ? (c.stats.sent / total) * 100 : 0;
                             return (
                                 <tr key={c.id}>
-                                    <td style={{ fontWeight: 500 }}>{c.name}</td>
+                                    <td style={{ fontWeight: '700', color: 'var(--secondary-color)' }}>{c.name}</td>
                                     <td>
                                         <span style={{
-                                            padding: '2px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600,
-                                            backgroundColor: c.status === 'Completed' ? '#ecfdf5' : c.status === 'Draft' ? '#f3f4f6' : '#fffbeb',
-                                            color: c.status === 'Completed' ? '#059669' : c.status === 'Draft' ? '#4b5563' : '#d97706'
+                                            padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '800',
+                                            background: c.status === 'Completed' ? '#dcfce7' : '#fef3c7',
+                                            color: c.status === 'Completed' ? '#15803d' : '#b45309'
                                         }}>
                                             {c.status}
                                         </span>
                                     </td>
-                                    <td>{c.stats?.sent || 0}</td>
-                                    <td className="text-error">{c.stats?.failed || 0}</td>
-                                    <td>{c.stats?.pending || 0}</td>
-                                    <td style={{ width: '20%' }}>
-                                        <div className="progress-container" style={{ marginTop: 0, height: '6px' }}>
-                                            <div className="progress-bar" style={{ width: `${progress}%`, backgroundColor: 'var(--success-color)' }}></div>
+                                    <td style={{ fontWeight: '600' }}>{c.stats?.sent || 0}</td>
+                                    <td>
+                                        <div style={{ width: '100px', height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden' }}>
+                                            <div style={{ width: `${progress}%`, height: '100%', background: '#10b981' }} />
                                         </div>
                                     </td>
                                 </tr>
                             );
                         })}
-                        {campaigns.length === 0 && (
-                            <tr>
-                                <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>No campaigns found</td>
-                            </tr>
-                        )}
                     </tbody>
                 </table>
             </div>

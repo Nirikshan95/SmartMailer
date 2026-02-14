@@ -11,7 +11,21 @@ export const DashboardProvider = ({ children }) => {
     const [subjects, setSubjects] = useState([]);
     const [emailList, setEmailList] = useState([]); // Deprecated in favor of selected list, but kept for compatibility
     const [completedEmails, setCompletedEmails] = useState([]);
-    const [emailContent, setEmailContent] = useState('');
+    const [emailContent, setEmailContent] = useState(() => {
+        const saved = localStorage.getItem('emailContent_v2');
+        if (saved) return saved;
+
+        return `<div style="font-family: sans-serif; line-height: 1.5;">
+  <h3 style="color: #059669;">Hello {{name}},</h3>
+  <p>I hope <b>{{company}}</b> is having a great week!</p>
+  <p>Best regards,<br/>[Your Name]</p>
+</div>`;
+    });
+
+    // Save email content to localStorage
+    useEffect(() => {
+        localStorage.setItem('emailContent_v2', emailContent);
+    }, [emailContent]);
     const [smtpConfig, setSmtpConfig] = useState(() => {
         const saved = localStorage.getItem('smtpConfig');
         return saved ? JSON.parse(saved) : {

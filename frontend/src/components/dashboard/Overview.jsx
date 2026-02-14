@@ -1,26 +1,38 @@
 import React from 'react';
 import { useDashboard } from './DashboardContext';
 import { Link } from 'react-router-dom';
-import { Users, Mail, CheckCircle, AlertCircle, TrendingUp, Plus, FileText, Send, Clock } from 'lucide-react';
+import { Users, Mail, CheckCircle, AlertCircle, TrendingUp, Plus, FileText, Send, Clock, Calendar } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-// Enhanced Stat Card Component
-const StatCard = ({ title, value, subtext, icon: Icon, color, bgColor, progress }) => (
+// Modern Stylish Stat Card Component
+const StatCard = ({ title, value, subtext, icon: Icon, color, progress, trend }) => (
     <div className="stat-card">
-        <div className="stat-icon" style={{ backgroundColor: bgColor }}>
-            <Icon size={24} color={color} />
+        <div className="stat-header">
+            <div className="stat-icon-container">
+                <div className="stat-icon-bg-offset" style={{ backgroundColor: color }}></div>
+                <div className="stat-icon-wrapper">
+                    <Icon size={20} color={color} />
+                </div>
+            </div>
+            {trend && (
+                <div className="stat-trend" style={{ color: color, backgroundColor: `${color}08`, borderColor: `${color}20` }}>
+                    {trend}
+                </div>
+            )}
         </div>
-        <div className="stat-content">
+        <div className="stat-value-container">
             <p className="stat-label">{title}</p>
             <h3 className="stat-value">{value}</h3>
             {subtext && <p className="stat-subtext">{subtext}</p>}
+
             {progress !== undefined && (
-                <div className="progress-container">
+                <div className="progress-container" style={{ marginTop: '16px', height: '4px', backgroundColor: 'var(--border-color)', opacity: 0.6 }}>
                     <div
                         className="progress-bar"
                         style={{
                             width: `${Math.min(progress, 100)}%`,
-                            backgroundColor: color
+                            backgroundColor: color,
+                            boxShadow: `0 0 8px ${color}20`
                         }}
                     />
                 </div>
@@ -49,6 +61,11 @@ const Overview = () => {
             emails: emailStats.emailsToday
         });
     }
+
+    // Calculate Reach Forecast
+    const totalProspects = emailList.length + completedEmails.length;
+    const dailyLimit = emailStats.maxPerDay || 400;
+    const reachDays = totalProspects > 0 ? Math.ceil(totalProspects / dailyLimit) : 0;
 
     return (
         <div>
@@ -79,35 +96,31 @@ const Overview = () => {
                 <StatCard
                     title="Total Prospects"
                     value={emailList.length + completedEmails.length}
-                    subtext="Across all lists"
+                    subtext="Verified in pipeline"
                     icon={Users}
                     color="#4f46e5"
-                    bgColor="#eef2ff"
                 />
                 <StatCard
                     title="Campaign Success"
                     value={`${completedEmails.length}`}
-                    subtext="Emails delivered safely"
+                    subtext="Safety Check Passed"
                     icon={CheckCircle}
                     color="#10b981"
-                    bgColor="#ecfdf5"
                 />
                 <StatCard
                     title="Daily Limit"
                     value={`${emailStats.emailsToday} / ${emailStats.maxPerDay}`}
-                    subtext={`${Math.round(dailyLimitPercent)}% used today`}
+                    subtext={`${Math.round(dailyLimitPercent)}% capacity`}
                     icon={TrendingUp}
                     color="#f59e0b"
-                    bgColor="#fffbeb"
                     progress={dailyLimitPercent}
                 />
                 <StatCard
                     title="Hourly Velocity"
                     value={`${emailStats.emailsThisHour} / ${emailStats.maxPerHour}`}
-                    subtext="Emails this hour"
+                    subtext="Processing updates"
                     icon={Clock}
                     color="#ef4444"
-                    bgColor="#fef2f2"
                     progress={hourlyLimitPercent}
                 />
             </div>
@@ -115,7 +128,7 @@ const Overview = () => {
             {/* Main Content Grid */}
             <div className="overview-grid">
                 {/* Left Column: Analytics Chart */}
-                <div className="card" style={{ height: '400px', display: 'flex', flexDirection: 'column' }}>
+                <div className="card" style={{ height: '400px', display: 'flex', flexDirection: 'column', marginBottom: 0 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                         <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--secondary-color)', margin: 0 }}>
                             Sending Activity
@@ -155,38 +168,159 @@ const Overview = () => {
                 </div>
 
                 {/* Right Column: Quick Actions & Status */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', height: '400px', minHeight: '400px', maxHeight: '400px' }}>
                     {/* Quick Actions */}
-                    <div className="card">
-                        <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--secondary-color)', marginBottom: '16px' }}>
+                    <div className="card" style={{ flex: 1.5, marginBottom: 0, padding: '20px', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+                        <h2 style={{ fontSize: '16px', fontWeight: 'bold', color: 'var(--secondary-color)', marginBottom: '14px' }}>
                             Quick Actions
                         </h2>
-                        <div className="quick-actions-grid">
-                            <Link to="/dashboard/campaigns" className="action-btn">
-                                <div className="action-btn-icon">
-                                    <Plus size={24} />
+                        <div className="quick-actions-grid" style={{
+                            flex: 1,
+                            gap: '10px',
+                            gridTemplateColumns: 'repeat(2, 1fr)',
+                            minHeight: 0,
+                            display: 'grid'
+                        }}>
+                            <Link to="/dashboard/campaigns" className="action-btn" style={{
+                                padding: '12px 8px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                color: 'var(--text-primary)',
+                                gap: '6px',
+                                height: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s ease'
+                            }}>
+                                <div className="action-btn-icon" style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    backgroundColor: '#dcfce7',
+                                    color: '#059669',
+                                    borderRadius: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}>
+                                    <Plus size={18} />
                                 </div>
-                                New Campaign
+                                <span style={{ whiteSpace: 'nowrap' }}>New Campaign</span>
                             </Link>
-                            <Link to="/dashboard/prospects" className="action-btn">
-                                <div className="action-btn-icon">
-                                    <Users size={24} />
+                            <Link to="/dashboard/prospects" className="action-btn" style={{
+                                padding: '12px 8px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                color: 'var(--text-primary)',
+                                gap: '6px',
+                                height: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s ease'
+                            }}>
+                                <div className="action-btn-icon" style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    backgroundColor: '#e0e7ff',
+                                    color: '#4f46e5',
+                                    borderRadius: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}>
+                                    <Users size={18} />
                                 </div>
-                                Add Prospects
+                                <span style={{ whiteSpace: 'nowrap' }}>Add Prospects</span>
                             </Link>
-                            <Link to="/dashboard/templates" className="action-btn">
-                                <div className="action-btn-icon">
-                                    <FileText size={24} />
+                            <Link to="/dashboard/templates" className="action-btn" style={{
+                                padding: '12px 8px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                color: 'var(--text-primary)',
+                                gap: '6px',
+                                height: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s ease'
+                            }}>
+                                <div className="action-btn-icon" style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    backgroundColor: '#fef3c7',
+                                    color: '#d97706',
+                                    borderRadius: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}>
+                                    <FileText size={18} />
                                 </div>
-                                Templates
+                                <span style={{ whiteSpace: 'nowrap' }}>Templates</span>
                             </Link>
-                            <Link to="/dashboard/analytics" className="action-btn">
-                                <div className="action-btn-icon">
-                                    <TrendingUp size={24} />
+                            <Link to="/dashboard/analytics" className="action-btn" style={{
+                                padding: '12px 8px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                color: 'var(--text-primary)',
+                                gap: '6px',
+                                height: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s ease'
+                            }}>
+                                <div className="action-btn-icon" style={{
+                                    width: '32px',
+                                    height: '32px',
+                                    backgroundColor: '#fae8ff',
+                                    color: '#a21caf',
+                                    borderRadius: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}>
+                                    <TrendingUp size={18} />
                                 </div>
-                                View Reports
+                                <span style={{ whiteSpace: 'nowrap' }}>Reports</span>
                             </Link>
                         </div>
+                    </div>
+
+                    {/* Reach Forecast */}
+                    <div className="card" style={{
+                        flex: 0.5,
+                        marginBottom: 0,
+                        padding: '16px 20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        textAlign: 'center',
+                        minHeight: 0,
+                        backgroundColor: 'var(--surface-color)',
+                        border: '1px solid var(--border-color)',
+                        position: 'relative',
+                        overflow: 'hidden'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                            <Calendar size={18} style={{ color: 'var(--primary-color)' }} />
+                            <h2 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--secondary-color)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Reach Forecast
+                            </h2>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                            <span style={{ fontSize: '30px', fontWeight: '800', color: 'var(--primary-color)', lineHeight: 1 }}>{reachDays}</span>
+                            <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Days</span>
+                        </div>
+                        <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: '1.2' }}>
+                            Pipeline lasts for <strong>{reachDays} days</strong>
+                        </p>
                     </div>
                 </div>
             </div>

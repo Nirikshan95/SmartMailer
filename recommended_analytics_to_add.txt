@@ -1,0 +1,38 @@
+Recommended Analytics to Add
+Based on your email automation platform, here are valuable insights you could add:
+
+1. Email Validation Metrics
+Bounce Rate by Domain: Track which email domains have highest bounce rates
+Validation Success Rate: Percentage of emails passing validation
+Invalid Email Reasons: Breakdown of why emails fail (disposable, no MX, SMTP failure, etc.)
+Domain Health Score: Track problematic domains over time
+2. Delivery Performance
+Delivery Rate Trends: Track successful delivery over time
+Failed Email Analysis: Categorize failures (daily limit, hourly limit, SMTP errors)
+Peak Sending Times: Identify best times for email delivery based on success rates
+Average Response Time: SMTP handshake and delivery times
+3. Campaign Intelligence
+Campaign Comparison: Side-by-side comparison of multiple campaigns
+Best Performing Campaigns: Rank campaigns by success rate
+Campaign Duration: Time to complete campaigns
+Retry Analysis: Track emails that needed multiple attempts
+4. Resource Usage
+Daily/Hourly Limit Tracking: Visual gauge showing how close you are to limits
+Sending Velocity Over Time: Track emails per hour/day trends
+Peak Usage Hours: Heatmap of when most emails are sent
+Quota Utilization: Percentage of daily/hourly limits used
+5. List Quality Metrics
+List Health Score: Overall quality of prospect lists
+Duplicate Detection: Track duplicate emails across campaigns
+Corporate vs Personal Domains: Distribution analysis
+Lenient Provider Usage: Track usage of Gmail, Outlook, etc.
+6. Predictive Analytics
+Estimated Completion Time: Predict when campaigns will finish
+Success Probability: ML-based prediction of email delivery success
+Optimal Send Times: Recommend best times based on historical data
+Budget Forecasting: Estimate costs based on sending patterns
+7. Real-time Monitoring
+Live Campaign Dashboard: Real-time updates during active sends
+Error Alerts: Immediate notification of issues
+Rate Limit Warnings: Alert when approaching limits
+System Health: Monitor SMTP connection status

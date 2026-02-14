@@ -3,6 +3,43 @@ import { useDashboard } from './DashboardContext';
 import { FileText, Upload, Save, Eye, Code, Plus, Trash2, RefreshCw, Copy, Check } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { html } from '@codemirror/lang-html';
+import { EditorView, Decoration, MatchDecorator, ViewPlugin } from "@codemirror/view";
+
+// Custom Extension for Variable Highlighting
+const variableDecorator = new MatchDecorator({
+    regexp: /{{[\w-]+}}/g,
+    decoration: m => Decoration.mark({
+        attributes: { style: "color: var(--primary-color); font-weight: 700; background: rgba(5, 150, 105, 0.1); padding: 0 2px; border-radius: 4px; border: 1px solid rgba(5, 150, 105, 0.2);" }
+    })
+});
+
+const variableHighlightExtension = ViewPlugin.fromClass(class {
+    constructor(view) { this.decorations = variableDecorator.createDeco(view) }
+    update(update) { this.decorations = variableDecorator.updateDeco(update, this.decorations) }
+}, {
+    decorations: v => v.decorations
+});
+
+const themeExtension = EditorView.theme({
+    "&": { height: "100%" },
+    ".cm-scroller": { fontFamily: "inherit" },
+    ".cm-content": { fontSize: '14px', padding: '16px 0' },
+    ".cm-gutters": { backgroundColor: "#f8fafc", borderRight: "1px solid var(--border-color)", color: "#94a3b8" },
+    ".cm-activeLineGutter": { backgroundColor: "#f1f5f9" }
+});
+
+const SAMPLE_TEXT = `Hello {{name}},
+
+I hope {{company}} is having a great week!
+
+Best regards,
+[Your Name]`;
+
+const SAMPLE_HTML = `<div style="font-family: sans-serif; line-height: 1.5;">
+  <h3 style="color: #059669;">Hello {{name}},</h3>
+  <p>I hope <b>{{company}}</b> is having a great week!</p>
+  <p>Best regards,<br/>[Your Name]</p>
+</div>`;
 
 const Templates = () => {
     const { emailContent, setEmailContent, subjects, setSubjects, setStatus, savedTemplates, saveTemplate, deleteTemplate, showToast } = useDashboard();
@@ -19,7 +56,9 @@ const Templates = () => {
     });
     const [splitWidth, setSplitWidth] = useState(50); // percentage for editor width
     const [isDragging, setIsDragging] = useState(false);
+    const [editorMode, setEditorMode] = useState('html'); // 'html' or 'text'
     const resizerRef = useRef(null);
+    const textareaRef = useRef(null);
 
     // Handle resizing
     useEffect(() => {
@@ -97,16 +136,10 @@ const Templates = () => {
     };
 
     const insertVariable = (variable) => {
-        const textarea = document.querySelector('.template-editor');
-        if (textarea) {
-            const start = textarea.selectionStart;
-            const end = textarea.selectionEnd;
-            const text = emailContent;
-            const newText = text.substring(0, start) + variable + text.substring(end);
-            setEmailContent(newText);
-
-            // Restore focus (optional, tricky with React state update)
-        }
+        // Since both are now CodeMirror, we can handle it uniformly 
+        // if we had the refs to the view, but for now state-based is fine.
+        // However, we want to improve this to append at end if no focus
+        setEmailContent(prev => prev + variable);
     };
 
     // Render Preview
@@ -187,6 +220,8 @@ const Templates = () => {
                                     <button onClick={() => setViewMode('split')} style={{ padding: '6px 12px', border: 'none', background: viewMode === 'split' ? 'white' : 'transparent', borderRadius: '6px', color: viewMode === 'split' ? 'var(--primary-color)' : 'var(--text-secondary)', fontWeight: '500', boxShadow: viewMode === 'split' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer', display: 'flex', gap: '4px', alignItems: 'center' }}><Code size={14} /> | <Eye size={14} /> Split</button>
                                     <button onClick={() => setViewMode('preview')} style={{ padding: '6px 12px', border: 'none', background: viewMode === 'preview' ? 'white' : 'transparent', borderRadius: '6px', color: viewMode === 'preview' ? 'var(--primary-color)' : 'var(--text-secondary)', fontWeight: '500', boxShadow: viewMode === 'preview' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer' }}><Eye size={16} /> Preview</button>
                                 </div>
+                                <button onClick={() => { if (window.confirm('Reset to Sample Text?')) { setEmailContent(SAMPLE_TEXT); setEditorMode('text'); showToast('Sample text template loaded', 'info'); } }} className="btn btn-outline" style={{ fontSize: '11px', padding: '10px' }}><RefreshCw size={14} /> Sample Text</button>
+                                <button onClick={() => { if (window.confirm('Reset to Sample HTML?')) { setEmailContent(SAMPLE_HTML); setEditorMode('html'); showToast('Sample HTML template loaded', 'info'); } }} className="btn btn-outline" style={{ fontSize: '11px', padding: '10px' }}><Code size={14} /> Sample HTML</button>
                                 <button onClick={() => { const name = prompt('Enter a name for this template:'); if (name) { saveTemplate(name, emailContent); showToast('Template saved successfully', 'success'); } }} className="btn btn-outline"><Save size={18} /> Save</button>
                                 <button onClick={() => templateFileRef.current?.click()} className="btn btn-outline"><Upload size={18} /> Load HTML</button>
                                 <input type="file" ref={templateFileRef} accept=".html" onChange={handleEmailTemplate} style={{ display: 'none' }} />
@@ -202,6 +237,25 @@ const Templates = () => {
                                     {['{{name}}', '{{company}}', '{{email}}'].map(v => (
                                         <button key={v} onClick={() => insertVariable(v)} style={{ padding: '4px 8px', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'white', fontSize: '12px', fontFamily: 'monospace', cursor: 'pointer', color: 'var(--primary-color)' }}>{v}</button>
                                     ))}
+                                    <button
+                                        onClick={() => {
+                                            const v = prompt('Enter variable name:');
+                                            if (v) insertVariable(`{{${v}}}`);
+                                        }}
+                                        style={{
+                                            padding: '4px 8px',
+                                            border: '1px solid var(--primary-color)',
+                                            borderRadius: '4px',
+                                            background: 'var(--surface-color)',
+                                            fontSize: '11px',
+                                            fontWeight: '700',
+                                            cursor: 'pointer',
+                                            color: 'var(--primary-color)',
+                                            textTransform: 'uppercase'
+                                        }}
+                                    >
+                                        + Custom
+                                    </button>
                                 </div>
                             </div>
 
@@ -231,31 +285,56 @@ const Templates = () => {
                                             padding: '0 16px',
                                             background: '#f1f5f9',
                                             borderBottom: '1px solid var(--border-color)',
-                                            fontSize: '11px',
-                                            fontWeight: '600',
-                                            color: 'var(--text-secondary)',
-                                            textTransform: 'uppercase',
                                             display: 'flex',
-                                            alignItems: 'center'
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between'
                                         }}>
-                                            HTML Editor
+                                            <span style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                {editorMode === 'html' ? 'HTML Editor' : 'Text Editor'}
+                                            </span>
+                                            <select
+                                                value={editorMode}
+                                                onChange={(e) => setEditorMode(e.target.value)}
+                                                style={{
+                                                    padding: '6px 12px',
+                                                    fontSize: '12px',
+                                                    borderRadius: '8px',
+                                                    border: '1px solid var(--border-color)',
+                                                    background: 'white',
+                                                    outline: 'none',
+                                                    cursor: 'pointer',
+                                                    fontWeight: '700',
+                                                    color: 'var(--primary-color)',
+                                                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                                                    appearance: 'none',
+                                                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23059669' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`,
+                                                    backgroundRepeat: 'no-repeat',
+                                                    backgroundPosition: 'right 8px center',
+                                                    paddingRight: '32px'
+                                                }}
+                                            >
+                                                <option value="html">HTML Mode</option>
+                                                <option value="text">Text Mode</option>
+                                            </select>
                                         </div>
-                                        <div style={{ flex: 1, padding: '16px', background: '#f8fafc', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                                        <div style={{ flex: 1, padding: '16px', background: '#f1f5f9', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                                             <div
                                                 className="custom-scrollbar"
                                                 style={{
                                                     flex: 1,
                                                     background: '#fff',
-                                                    borderRadius: '8px',
+                                                    borderRadius: '12px',
                                                     border: '1px solid var(--border-color)',
-                                                    overflow: 'auto',
-                                                    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)'
+                                                    overflow: 'hidden',
+                                                    boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.03)',
+                                                    display: 'flex',
+                                                    flexDirection: 'column'
                                                 }}
                                             >
                                                 <CodeMirror
                                                     value={emailContent || ""}
                                                     height="100%"
-                                                    extensions={[html()]}
+                                                    extensions={editorMode === 'html' ? [html(), variableHighlightExtension, themeExtension] : [variableHighlightExtension, themeExtension]}
                                                     onChange={(value) => setEmailContent(value)}
                                                     basicSetup={{
                                                         lineNumbers: true,
@@ -366,7 +445,10 @@ const Templates = () => {
                                                     padding: '24px',
                                                     borderRadius: '8px',
                                                     boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                                                    minHeight: '100%'
+                                                    minHeight: '100%',
+                                                    whiteSpace: editorMode === 'text' ? 'pre-wrap' : 'normal',
+                                                    wordWrap: 'break-word',
+                                                    fontFamily: editorMode === 'text' ? 'inherit' : 'sans-serif'
                                                 }}
                                                 dangerouslySetInnerHTML={{ __html: renderPreview() }}
                                             />
@@ -403,48 +485,51 @@ const Templates = () => {
                             </div>
                         </div>
                     </div>
-                )}
+                )
+                }
 
                 {/* Subject Lines Tab Content */}
-                {activeTab === 'subjects' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text-primary)', margin: 0 }}>Subject Lines Manager</h2>
-                        <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden', marginBottom: 0 }}>
-                            <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div>
-                                        <h3 style={{ fontSize: '16px', fontWeight: 'bold' }}>Active Subjects</h3>
-                                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>{subjects.length} active subjects</p>
+                {
+                    activeTab === 'subjects' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text-primary)', margin: 0 }}>Subject Lines Manager</h2>
+                            <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden', marginBottom: 0 }}>
+                                <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                            <h3 style={{ fontSize: '16px', fontWeight: 'bold' }}>Active Subjects</h3>
+                                            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>{subjects.length} active subjects</p>
+                                        </div>
+                                        <button className="btn btn-outline" style={{ fontSize: '12px' }} onClick={() => subjectFileRef.current?.click()}><Upload size={14} /> Bulk Upload (.txt)</button>
+                                        <input type="file" ref={subjectFileRef} accept=".txt" onChange={handleSubjectFile} style={{ display: 'none' }} />
                                     </div>
-                                    <button className="btn btn-outline" style={{ fontSize: '12px' }} onClick={() => subjectFileRef.current?.click()}><Upload size={14} /> Bulk Upload (.txt)</button>
-                                    <input type="file" ref={subjectFileRef} accept=".txt" onChange={handleSubjectFile} style={{ display: 'none' }} />
                                 </div>
-                            </div>
-                            <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', background: '#f8fafc' }}>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <input type="text" className="input" placeholder="Enter a new subject line..." style={{ flex: 1 }} value={newSubject} onChange={(e) => setNewSubject(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addSubject()} />
-                                    <button className="btn btn-primary" onClick={addSubject}><Plus size={16} /> Add Subject</button>
+                                <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', background: '#f8fafc' }}>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <input type="text" className="input" placeholder="Enter a new subject line..." style={{ flex: 1 }} value={newSubject} onChange={(e) => setNewSubject(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addSubject()} />
+                                        <button className="btn btn-primary" onClick={addSubject}><Plus size={16} /> Add Subject</button>
+                                    </div>
                                 </div>
-                            </div>
-                            <div style={{ maxHeight: '60vh', overflowY: 'auto', padding: '0' }}>
-                                {subjects.length > 0 ? (
-                                    <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                                        {subjects.map((subject, index) => (
-                                            <li key={index} style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <span style={{ flex: 1, marginRight: '16px' }} title={subject}>{subject}</span>
-                                                <button onClick={() => removeSubject(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '4px' }}><Trash2 size={16} /></button>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                ) : (
-                                    <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>No subject lines added yet. Add one above or upload a list.</div>
-                                )}
+                                <div style={{ maxHeight: '60vh', overflowY: 'auto', padding: '0' }}>
+                                    {subjects.length > 0 ? (
+                                        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                                            {subjects.map((subject, index) => (
+                                                <li key={index} style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ flex: 1, marginRight: '16px' }} title={subject}>{subject}</span>
+                                                    <button onClick={() => removeSubject(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '4px' }}><Trash2 size={16} /></button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>No subject lines added yet. Add one above or upload a list.</div>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    </div>
-                )}
-            </div>
-        </div>
+                    )
+                }
+            </div >
+        </div >
     );
 };
 
