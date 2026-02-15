@@ -45,6 +45,7 @@ const Templates = () => {
     const { emailContent, setEmailContent, subjects, setSubjects, setStatus, savedTemplates, saveTemplate, deleteTemplate, showToast } = useDashboard();
     const templateFileRef = useRef(null);
     const subjectFileRef = useRef(null);
+    const textFileRef = useRef(null);
 
     // UI State
     const [viewMode, setViewMode] = useState('split'); // 'edit', 'preview', 'split'
@@ -57,6 +58,7 @@ const Templates = () => {
     const [splitWidth, setSplitWidth] = useState(50); // percentage for editor width
     const [isDragging, setIsDragging] = useState(false);
     const [editorMode, setEditorMode] = useState('html'); // 'html' or 'text'
+    const [showLoadDropdown, setShowLoadDropdown] = useState(false);
     const resizerRef = useRef(null);
     const textareaRef = useRef(null);
 
@@ -103,7 +105,22 @@ const Templates = () => {
             const reader = new FileReader();
             reader.onload = (event) => {
                 setEmailContent(event.target.result);
+                setEditorMode('html');
                 setStatus('✅ Email template loaded');
+            };
+            reader.readAsText(file);
+        }
+    };
+
+    // Handle Text File Upload
+    const handleTextFile = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                setEmailContent(event.target.result);
+                setEditorMode('text');
+                setStatus('✅ Text file loaded');
             };
             reader.readAsText(file);
         }
@@ -136,10 +153,37 @@ const Templates = () => {
     };
 
     const insertVariable = (variable) => {
-        // Since both are now CodeMirror, we can handle it uniformly 
+        // Since both are now CodeMirror, we can handle it uniformly
         // if we had the refs to the view, but for now state-based is fine.
         // However, we want to improve this to append at end if no focus
         setEmailContent(prev => prev + variable);
+    };
+
+    // Convert content between HTML and Text modes
+    const convertContentForMode = (content, fromMode, toMode) => {
+        if (fromMode === toMode) return content;
+
+        if (toMode === 'text') {
+            // Convert HTML to plain text
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            return tempDiv.textContent || tempDiv.innerText || '';
+        } else {
+            // Convert text to HTML (wrap in basic HTML structure)
+            const lines = content.split('\n');
+            const htmlLines = lines.map(line => {
+                const trimmed = line.trim();
+                return trimmed ? `<p>${trimmed}</p>` : '<br/>';
+            });
+            return htmlLines.join('\n');
+        }
+    };
+
+    // Handle editor mode change with content conversion
+    const handleEditorModeChange = (newMode) => {
+        const convertedContent = convertContentForMode(emailContent, editorMode, newMode);
+        setEditorMode(newMode);
+        setEmailContent(convertedContent);
     };
 
     // Render Preview
@@ -223,8 +267,17 @@ const Templates = () => {
                                 <button onClick={() => { if (window.confirm('Reset to Sample Text?')) { setEmailContent(SAMPLE_TEXT); setEditorMode('text'); showToast('Sample text template loaded', 'info'); } }} className="btn btn-outline" style={{ fontSize: '11px', padding: '10px' }}><RefreshCw size={14} /> Sample Text</button>
                                 <button onClick={() => { if (window.confirm('Reset to Sample HTML?')) { setEmailContent(SAMPLE_HTML); setEditorMode('html'); showToast('Sample HTML template loaded', 'info'); } }} className="btn btn-outline" style={{ fontSize: '11px', padding: '10px' }}><Code size={14} /> Sample HTML</button>
                                 <button onClick={() => { const name = prompt('Enter a name for this template:'); if (name) { saveTemplate(name, emailContent); showToast('Template saved successfully', 'success'); } }} className="btn btn-outline"><Save size={18} /> Save</button>
-                                <button onClick={() => templateFileRef.current?.click()} className="btn btn-outline"><Upload size={18} /> Load HTML</button>
-                                <input type="file" ref={templateFileRef} accept=".html" onChange={handleEmailTemplate} style={{ display: 'none' }} />
+                                <div style={{ position: 'relative' }}>
+                                    <button onClick={() => setShowLoadDropdown(!showLoadDropdown)} className="btn btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Upload size={18} /> Load File <span style={{ fontSize: '10px' }}>▼</span></button>
+                                    {showLoadDropdown && (
+                                        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '4px', background: 'white', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 100, minWidth: '140px' }}>
+                                            <button onClick={() => { templateFileRef.current?.click(); setShowLoadDropdown(false); }} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}><Code size={14} /> Load HTML</button>
+                                            <button onClick={() => { textFileRef.current?.click(); setShowLoadDropdown(false); }} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}><FileText size={14} /> Load Text</button>
+                                        </div>
+                                    )}
+                                </div>
+                                <input type="file" ref={templateFileRef} accept=".html,.htm" onChange={handleEmailTemplate} style={{ display: 'none' }} />
+                                <input type="file" ref={textFileRef} accept=".txt" onChange={handleTextFile} style={{ display: 'none' }} />
                             </div>
                         </div>
 
@@ -294,7 +347,7 @@ const Templates = () => {
                                             </span>
                                             <select
                                                 value={editorMode}
-                                                onChange={(e) => setEditorMode(e.target.value)}
+                                                onChange={(e) => handleEditorModeChange(e.target.value)}
                                                 style={{
                                                     padding: '6px 12px',
                                                     fontSize: '12px',

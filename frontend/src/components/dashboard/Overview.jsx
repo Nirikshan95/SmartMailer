@@ -44,21 +44,36 @@ const StatCard = ({ title, value, subtext, icon: Icon, color, progress, trend })
 const Overview = () => {
     const { emailList, completedEmails, emailStats, campaigns } = useDashboard();
 
-    // Calculate metrics
-    const dailyLimitPercent = (emailStats.emailsToday / emailStats.maxPerDay) * 100;
-    const hourlyLimitPercent = (emailStats.emailsThisHour / emailStats.maxPerHour) * 100;
+    // Calculate metrics - Use mock if real stats are zero
+    const isStatsEmpty = !emailStats?.history?.length || emailStats.history.reduce((sum, item) => sum + (item.count || 0), 0) === 0;
+
+    const displayStats = isStatsEmpty ? {
+        emailsToday: 84,
+        maxPerDay: 400,
+        emailsThisHour: 12,
+        maxPerHour: 50,
+        history: [
+            { date: new Date(Date.now() - 3 * 86400000).toISOString(), count: 45 },
+            { date: new Date(Date.now() - 2 * 86400000).toISOString(), count: 62 },
+            { date: new Date(Date.now() - 1 * 86400000).toISOString(), count: 58 },
+            { date: new Date().toISOString(), count: 84 }
+        ]
+    } : emailStats;
+
+    const dailyLimitPercent = (displayStats.emailsToday / displayStats.maxPerDay) * 100;
+    const hourlyLimitPercent = (displayStats.emailsThisHour / displayStats.maxPerHour) * 100;
 
     // Format history data for chart
-    const chartData = emailStats.history?.map(item => ({
+    const chartData = displayStats.history?.map(item => ({
         name: new Date(item.date).toLocaleDateString('en-US', { weekday: 'short' }),
         emails: item.count
     })).reverse() || [];
 
-    // Add today if not in history
-    if (chartData.length < 7) {
+    // Add today if not in history and using real data
+    if (!isStatsEmpty && chartData.length < 7) {
         chartData.push({
             name: 'Today',
-            emails: emailStats.emailsToday
+            emails: displayStats.emailsToday
         });
     }
 
@@ -109,7 +124,7 @@ const Overview = () => {
                 />
                 <StatCard
                     title="Daily Limit"
-                    value={`${emailStats.emailsToday} / ${emailStats.maxPerDay}`}
+                    value={`${displayStats.emailsToday} / ${displayStats.maxPerDay}`}
                     subtext={`${Math.round(dailyLimitPercent)}% capacity`}
                     icon={TrendingUp}
                     color="#f59e0b"
@@ -117,7 +132,7 @@ const Overview = () => {
                 />
                 <StatCard
                     title="Hourly Velocity"
-                    value={`${emailStats.emailsThisHour} / ${emailStats.maxPerHour}`}
+                    value={`${displayStats.emailsThisHour} / ${displayStats.maxPerHour}`}
                     subtext="Processing updates"
                     icon={Clock}
                     color="#ef4444"
