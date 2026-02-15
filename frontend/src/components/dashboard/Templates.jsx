@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useDashboard } from './DashboardContext';
-import { FileText, Upload, Save, Eye, Code, Plus, Trash2, RefreshCw, Copy, Check, ArrowLeft, Edit, CheckSquare, Download } from 'lucide-react';
+import { FileText, Upload, Save, Eye, Code, Plus, Trash2, RefreshCw, Copy, Check, ArrowLeft, Edit, CheckSquare, Download, ChevronDown, Bold, Italic, Strikethrough, Palette, Highlighter, Undo, Redo } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { html } from '@codemirror/lang-html';
 import { EditorView, Decoration, MatchDecorator, ViewPlugin } from "@codemirror/view";
@@ -44,10 +44,16 @@ const SAMPLE_HTML = `<div style="font-family: sans-serif; line-height: 1.5;">
 </div>`;
 
 const Templates = () => {
-    const { emailContent, setEmailContent, subjects, setSubjects, setStatus, savedTemplates, saveTemplate, deleteTemplate, showToast } = useDashboard();
+    const { emailContent, setEmailContent, subjects, setSubjects, setStatus, savedTemplates, saveTemplate, updateTemplate, deleteTemplate, showToast } = useDashboard();
+    const [activeTemplateId, setActiveTemplateId] = useState(null);
+    const [showSaveDropdown, setShowSaveDropdown] = useState(false);
     const templateFileRef = useRef(null);
     const subjectFileRef = useRef(null);
     const textFileRef = useRef(null);
+    const editorRef = useRef(null);
+    const visualEditorRef = useRef(null);
+    const textColorRef = useRef(null);
+    const bgColorRef = useRef(null);
 
     // UI State
     const [viewMode, setViewMode] = useState('split'); // 'edit', 'preview', 'split'
@@ -62,7 +68,16 @@ const Templates = () => {
     const [editorMode, setEditorMode] = useState('html'); // 'html' or 'text'
     const [showLoadDropdown, setShowLoadDropdown] = useState(false);
     const resizerRef = useRef(null);
-    const textareaRef = useRef(null);
+
+    // Sync emailContent to visual editor only when necessary
+    useEffect(() => {
+        if (editorMode === 'text' && visualEditorRef.current) {
+            // Only update innerHTML if it's different to avoid caret reset
+            if (visualEditorRef.current.innerHTML !== emailContent) {
+                visualEditorRef.current.innerHTML = emailContent || '';
+            }
+        }
+    }, [editorMode, activeTemplateId]); // Re-sync on mode change or new template
 
     // Subject Creation Mode State
     const [subjectCreationMode, setSubjectCreationMode] = useState('subject'); // 'subject' or 'list'
@@ -71,6 +86,7 @@ const Templates = () => {
     const [currentListSubjects, setCurrentListSubjects] = useState([]);
     const [selectedListIndex, setSelectedListIndex] = useState(null);
     const [selectedListsForDelete, setSelectedListsForDelete] = useState(new Set());
+    const [hoveredTemplateId, setHoveredTemplateId] = useState(null);
 
     // Handle Subject Management
     const addSubject = () => {
@@ -247,10 +263,28 @@ const Templates = () => {
     };
 
     const insertVariable = (variable) => {
-        // Since both are now CodeMirror, we can handle it uniformly
-        // if we had the refs to the view, but for now state-based is fine.
-        // However, we want to improve this to append at end if no focus
-        setEmailContent(prev => prev + variable);
+        if (!editorRef.current?.view) {
+            setEmailContent(prev => prev + variable);
+            return;
+        }
+
+        const view = editorRef.current.view;
+        const { state } = view;
+        const mainSelection = state.selection.main;
+
+        view.dispatch({
+            changes: { from: mainSelection.from, to: mainSelection.to, insert: variable },
+            selection: { anchor: mainSelection.from + variable.length }
+        });
+        view.focus();
+    };
+
+    // Extract unique variables from content
+    const getUsedVariables = () => {
+        if (!emailContent) return ['{{name}}', '{{company}}', '{{email}}'];
+        const matches = emailContent.match(/{{[\w-]+}}/g) || [];
+        const unique = Array.from(new Set(['{{name}}', '{{company}}', '{{email}}', ...matches]));
+        return unique;
     };
 
     // Convert content between HTML and Text modes
@@ -286,6 +320,84 @@ const Templates = () => {
 
         // Return content as-is without variable replacement
         return emailContent;
+    };
+
+    const handleSave = () => {
+        if (activeTemplateId) {
+            updateTemplate(activeTemplateId, { content: emailContent, type: editorMode });
+            showToast('Template updated successfully', 'success');
+        } else {
+            const rawName = prompt('Enter a name for this template:');
+            if (rawName === null) return;
+            const trimmedName = rawName.trim();
+            if (!trimmedName) { showToast('Template name cannot be empty', 'error'); return; }
+            if (trimmedName.length > 50) { showToast('Template name is too long (max 50 characters)', 'error'); return; }
+            if (savedTemplates.some(t => t.name.trim().toLowerCase() === trimmedName.toLowerCase())) {
+                showToast(`Template name "${trimmedName}" already exists`, 'error');
+                return;
+            }
+            const newTemp = saveTemplate(trimmedName, emailContent, editorMode);
+            setActiveTemplateId(newTemp.id);
+            showToast('Template saved successfully', 'success');
+        }
+    };
+
+    const handleSaveAs = () => {
+        const rawName = prompt('Enter name for NEW template copy:');
+        if (rawName === null) return;
+        const trimmedName = rawName.trim();
+        if (!trimmedName) { showToast('Name cannot be empty', 'error'); return; }
+        if (trimmedName.length > 50) { showToast('Name is too long', 'error'); return; }
+        if (savedTemplates.some(t => t.name.trim().toLowerCase() === trimmedName.toLowerCase())) {
+            showToast(`Name "${trimmedName}" already exists`, 'error');
+            return;
+        }
+        const newTemp = saveTemplate(trimmedName, emailContent, editorMode);
+        setActiveTemplateId(newTemp.id);
+        showToast('Saved as new template', 'success');
+    };
+
+    const applyFormatting = (prefix, suffix) => {
+        if (!editorRef.current?.view) return;
+
+        const view = editorRef.current.view;
+        const { state } = view;
+        const mainSelection = state.selection.main;
+        const selectedText = state.doc.sliceString(mainSelection.from, mainSelection.to);
+
+        view.dispatch({
+            changes: {
+                from: mainSelection.from,
+                to: mainSelection.to,
+                insert: prefix + selectedText + suffix
+            },
+            selection: {
+                anchor: mainSelection.from + prefix.length + selectedText.length
+            }
+        });
+        view.focus();
+    };
+
+    const handleFormatting = (command, value = null) => {
+        if (editorMode === 'text') {
+            if (visualEditorRef.current) {
+                visualEditorRef.current.focus();
+                document.execCommand(command, false, value);
+                setEmailContent(visualEditorRef.current.innerHTML);
+            }
+        } else {
+            // This case might not be reached if toolbar is hidden in HTML mode,
+            // but kept for robustness if we ever re-enable it.
+            const formatMap = {
+                bold: ['<b>', '</b>'],
+                italic: ['<i>', '</i>'],
+                strikethrough: ['<s>', '</s>'],
+                foreColor: [`<span style="color: ${value}">`, '</span>'],
+                hiliteColor: [`<span style="background-color: ${value}">`, '</span>']
+            };
+            const tags = formatMap[command];
+            if (tags) applyFormatting(tags[0], tags[1]);
+        }
     };
 
     // UI State for Tabs
@@ -352,9 +464,93 @@ const Templates = () => {
                                 </div>
                                 <button onClick={() => { if (window.confirm('Reset to Sample Text?')) { setEmailContent(SAMPLE_TEXT); setEditorMode('text'); showToast('Sample text template loaded', 'info'); } }} className="btn btn-outline" style={{ fontSize: '11px', padding: '10px' }}><RefreshCw size={14} /> Sample Text</button>
                                 <button onClick={() => { if (window.confirm('Reset to Sample HTML?')) { setEmailContent(SAMPLE_HTML); setEditorMode('html'); showToast('Sample HTML template loaded', 'info'); } }} className="btn btn-outline" style={{ fontSize: '11px', padding: '10px' }}><Code size={14} /> Sample HTML</button>
-                                <button onClick={() => { const name = prompt('Enter a name for this template:'); if (name) { saveTemplate(name, emailContent); showToast('Template saved successfully', 'success'); } }} className="btn btn-outline"><Save size={18} /> Save</button>
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                    <button
+                                        onClick={handleSave}
+                                        className="btn btn-primary"
+                                        style={{
+                                            borderTopRightRadius: 0,
+                                            borderBottomRightRadius: 0,
+                                            borderRight: '1px solid rgba(255,255,255,0.2)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        <Save size={18} /> {activeTemplateId ? 'Update' : 'Save'}
+                                    </button>
+                                    <div style={{ position: 'relative' }}>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setShowSaveDropdown(!showSaveDropdown);
+                                            }}
+                                            className="btn btn-primary"
+                                            style={{
+                                                borderTopLeftRadius: 0,
+                                                borderBottomLeftRadius: 0,
+                                                paddingLeft: '6px',
+                                                paddingRight: '6px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                height: '100%'
+                                            }}
+                                        >
+                                            <ChevronDown size={14} />
+                                        </button>
+                                        {showSaveDropdown && (
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: '100%',
+                                                right: 0,
+                                                marginTop: '4px',
+                                                background: 'white',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '8px',
+                                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                                zIndex: 100,
+                                                minWidth: '160px',
+                                                overflow: 'hidden'
+                                            }}>
+                                                <button
+                                                    onClick={() => { handleSaveAs(); setShowSaveDropdown(false); }}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '10px 16px',
+                                                        border: 'none',
+                                                        background: 'transparent',
+                                                        textAlign: 'left',
+                                                        cursor: 'pointer',
+                                                        fontSize: '13px',
+                                                        color: 'var(--text-primary)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px'
+                                                    }}
+                                                >
+                                                    <Copy size={14} /> Save As Copy
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm('Clear editor to start a new template?')) {
+                                            setEmailContent('');
+                                            setActiveTemplateId(null);
+                                            showToast('Editor cleared', 'info');
+                                        }
+                                    }}
+                                    className="btn btn-outline"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                                >
+                                    <Plus size={18} />
+                                </button>
                                 <div style={{ position: 'relative' }}>
-                                    <button onClick={() => setShowLoadDropdown(!showLoadDropdown)} className="btn btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Upload size={18} /> Load File <span style={{ fontSize: '10px' }}>▼</span></button>
+                                    <button onClick={() => setShowLoadDropdown(!showLoadDropdown)} className="btn btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Upload size={18} /> <span style={{ fontSize: '10px' }}>▼</span></button>
                                     {showLoadDropdown && (
                                         <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '4px', background: 'white', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 100, minWidth: '140px' }}>
                                             <button onClick={() => { templateFileRef.current?.click(); setShowLoadDropdown(false); }} style={{ width: '100%', padding: '10px 16px', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}><Code size={14} /> Load HTML</button>
@@ -369,36 +565,77 @@ const Templates = () => {
 
                         {/* Editor & Preview Area */}
                         <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', marginBottom: 0 }}>
-                            {/* Toolbar */}
-                            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', alignSelf: 'center', marginRight: '8px' }}>Insert Variable:</span>
-                                    {['{{name}}', '{{company}}', '{{email}}'].map(v => (
-                                        <button key={v} onClick={() => insertVariable(v)} style={{ padding: '4px 8px', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'white', fontSize: '12px', fontFamily: 'monospace', cursor: 'pointer', color: 'var(--primary-color)' }}>{v}</button>
-                                    ))}
+                            {/* Toolbar Removed static insertion */}
+
+                            {/* Main Content Area */}
+                            <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', background: 'white' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                        Variables in use:
+                                    </span>
                                     <button
                                         onClick={() => {
-                                            const v = prompt('Enter variable name:');
+                                            const v = prompt('Enter new variable name:');
                                             if (v) insertVariable(`{{${v}}}`);
                                         }}
                                         style={{
                                             padding: '4px 8px',
-                                            border: '1px solid var(--primary-color)',
-                                            borderRadius: '4px',
-                                            background: 'var(--surface-color)',
+                                            border: 'none',
+                                            background: 'none',
                                             fontSize: '11px',
                                             fontWeight: '700',
                                             cursor: 'pointer',
                                             color: 'var(--primary-color)',
-                                            textTransform: 'uppercase'
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
                                         }}
                                     >
-                                        + Custom
+                                        <Plus size={14} /> Add New
                                     </button>
                                 </div>
+                                <div
+                                    className="custom-scrollbar"
+                                    style={{
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
+                                        gap: '8px',
+                                        maxHeight: '100px',
+                                        overflowY: 'auto',
+                                        padding: '4px'
+                                    }}
+                                >
+                                    {getUsedVariables().map(v => (
+                                        <button
+                                            key={v}
+                                            onClick={() => insertVariable(v)}
+                                            title={`Click to insert ${v}`}
+                                            style={{
+                                                padding: '6px 12px',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '6px',
+                                                background: '#f8fafc',
+                                                fontSize: '12px',
+                                                fontFamily: 'monospace',
+                                                cursor: 'pointer',
+                                                color: 'var(--primary-color)',
+                                                transition: 'all 0.2s',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px'
+                                            }}
+                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.borderColor = 'var(--primary-color)'; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                                        >
+                                            {v}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p style={{ fontSize: '10px', color: 'var(--text-tertiary)', marginTop: '8px', fontStyle: 'italic' }}>
+                                    💡 Click a variable to insert it at your cursor position. Use scroll if there are many variables.
+                                </p>
                             </div>
 
-                            {/* Main Content Area */}
                             <div
                                 id="templates-split-container"
                                 style={{
@@ -422,15 +659,100 @@ const Templates = () => {
                                         <div style={{
                                             height: '52px',
                                             padding: '0 16px',
-                                            background: '#f1f5f9',
+                                            background: '#f8fafc',
                                             borderBottom: '1px solid var(--border-color)',
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'space-between'
                                         }}>
-                                            <span style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                                {editorMode === 'html' ? 'HTML Editor' : 'Text Editor'}
-                                            </span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                {editorMode === 'text' && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => handleFormatting('undo')}
+                                                            style={{ padding: '6px', borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.color = 'var(--primary-color)'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                                                            title="Undo (Ctrl+Z)"
+                                                        >
+                                                            <Undo size={16} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleFormatting('redo')}
+                                                            style={{ padding: '6px', borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.color = 'var(--primary-color)'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                                                            title="Redo (Ctrl+Y)"
+                                                        >
+                                                            <Redo size={16} />
+                                                        </button>
+                                                        <div style={{ width: '1px', height: '16px', background: 'var(--border-color)', margin: '0 4px' }} />
+                                                        <button
+                                                            onClick={() => handleFormatting('bold')}
+                                                            style={{ padding: '6px', borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.color = 'var(--primary-color)'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                                                            title="Bold"
+                                                        >
+                                                            <Bold size={16} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleFormatting('italic')}
+                                                            style={{ padding: '6px', borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.color = 'var(--primary-color)'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                                                            title="Italic"
+                                                        >
+                                                            <Italic size={16} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleFormatting('strikethrough')}
+                                                            style={{ padding: '6px', borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.color = 'var(--primary-color)'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                                                            title="Strikethrough"
+                                                        >
+                                                            <Strikethrough size={16} />
+                                                        </button>
+                                                        <div style={{ width: '1px', height: '16px', background: 'var(--border-color)', margin: '0 4px' }} />
+                                                        <button
+                                                            onClick={() => textColorRef.current?.click()}
+                                                            style={{ padding: '6px', borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.color = 'var(--primary-color)'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                                                            title="Text Color"
+                                                        >
+                                                            <Palette size={16} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => bgColorRef.current?.click()}
+                                                            style={{ padding: '6px', borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }}
+                                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.color = 'var(--primary-color)'; }}
+                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                                                            title="Highlight Color"
+                                                        >
+                                                            <Highlighter size={16} />
+                                                        </button>
+                                                        <div style={{ width: '1px', height: '16px', background: 'var(--border-color)', margin: '0 4px' }} />
+
+                                                        <input
+                                                            type="color"
+                                                            ref={textColorRef}
+                                                            style={{ display: 'none' }}
+                                                            onChange={(e) => handleFormatting('foreColor', e.target.value)}
+                                                        />
+                                                        <input
+                                                            type="color"
+                                                            ref={bgColorRef}
+                                                            style={{ display: 'none' }}
+                                                            onChange={(e) => handleFormatting('hiliteColor', e.target.value)}
+                                                        />
+                                                    </>
+                                                )}
+                                                <span style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                    {editorMode === 'html' ? 'HTML Mode (Code Editing)' : 'Visual Mode (No-Code Editing)'}
+                                                </span>
+                                            </div>
                                             <select
                                                 value={editorMode}
                                                 onChange={(e) => handleEditorModeChange(e.target.value)}
@@ -456,7 +778,7 @@ const Templates = () => {
                                                 <option value="text">Text Mode</option>
                                             </select>
                                         </div>
-                                        <div style={{ flex: 1, padding: '16px', background: '#f1f5f9', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                                        <div style={{ flex: 1, padding: '16px', background: '#f8fafc', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                                             <div
                                                 className="custom-scrollbar"
                                                 style={{
@@ -470,22 +792,55 @@ const Templates = () => {
                                                     flexDirection: 'column'
                                                 }}
                                             >
-                                                <CodeMirror
-                                                    value={emailContent || ""}
-                                                    height="100%"
-                                                    extensions={editorMode === 'html' ? [html(), variableHighlightExtension, themeExtension] : [variableHighlightExtension, themeExtension]}
-                                                    onChange={(value) => setEmailContent(value)}
-                                                    basicSetup={{
-                                                        lineNumbers: true,
-                                                        foldGutter: true,
-                                                        highlightActiveLine: true,
-                                                    }}
-                                                    style={{
-                                                        fontSize: '14px',
-                                                        height: '100%',
-                                                        outline: 'none'
-                                                    }}
-                                                />
+                                                {editorMode === 'html' ? (
+                                                    <CodeMirror
+                                                        ref={editorRef}
+                                                        value={emailContent || ""}
+                                                        height="100%"
+                                                        extensions={[html(), variableHighlightExtension, themeExtension]}
+                                                        onChange={(value) => setEmailContent(value)}
+                                                        basicSetup={{
+                                                            lineNumbers: true,
+                                                            foldGutter: true,
+                                                            dropCursor: true,
+                                                            allowMultipleSelections: false,
+                                                            indentOnInput: true,
+                                                        }}
+                                                        theme="light"
+                                                    />
+                                                ) : (
+                                                    <div
+                                                        ref={visualEditorRef}
+                                                        contentEditable
+                                                        onInput={(e) => {
+                                                            // Update state without re-rendering the div itself
+                                                            setEmailContent(e.currentTarget.innerHTML);
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Tab') {
+                                                                e.preventDefault();
+                                                                document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;');
+                                                            }
+                                                        }}
+                                                        onPaste={(e) => {
+                                                            // Optional: Handle plain text paste if desired
+                                                            // e.preventDefault();
+                                                            // const text = e.clipboardData.getData('text/plain');
+                                                            // document.execCommand('insertText', false, text);
+                                                        }}
+                                                        style={{
+                                                            padding: '24px',
+                                                            height: '100%',
+                                                            overflowY: 'auto',
+                                                            outline: 'none',
+                                                            fontSize: '15px',
+                                                            lineHeight: '1.6',
+                                                            color: '#1e293b',
+                                                            backgroundColor: 'white',
+                                                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                                                        }}
+                                                    />
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -582,27 +937,139 @@ const Templates = () => {
                         </div>
 
                         {/* Saved Templates Card */}
-                        <div className="card" style={{ height: '240px', display: 'flex', flexDirection: 'column', padding: 0, marginBottom: 0, flexShrink: 0 }}>
+                        <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: 0, marginBottom: 0, flexShrink: 0 }}>
                             <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)' }}>
                                 <h3 style={{ fontSize: '16px', fontWeight: 'bold' }}>Saved Templates</h3>
                             </div>
-                            <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+                            <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: '16px', maxHeight: '410px' }}>
                                 {savedTemplates.length > 0 ? (
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
                                         {savedTemplates.map(template => (
-                                            <div key={template.id} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '12px', background: 'var(--surface-color)' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                                                    <h4 style={{ fontSize: '14px', fontWeight: '600', margin: 0 }}>{template.name}</h4>
-                                                    <button onClick={(e) => { e.stopPropagation(); deleteTemplate(template.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: 0 }}><Trash2 size={14} /></button>
+                                            <div
+                                                key={template.id}
+                                                onMouseEnter={() => setHoveredTemplateId(template.id)}
+                                                onMouseLeave={() => setHoveredTemplateId(null)}
+                                                style={{
+                                                    border: '1px solid var(--border-color)',
+                                                    borderRadius: '8px',
+                                                    padding: '12px',
+                                                    background: template.type === 'html' ? '#ecfdf5' : '#eff6ff',
+                                                    position: 'relative',
+                                                    minHeight: '100px',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    justifyContent: 'space-between',
+                                                    transition: 'all 0.2s ease'
+                                                }}
+                                            >
+                                                <div title={template.name}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                                                        <h4 style={{
+                                                            fontSize: '13px',
+                                                            fontWeight: '700',
+                                                            margin: 0,
+                                                            color: 'var(--text-primary)',
+                                                            wordBreak: 'break-word',
+                                                            overflow: 'hidden',
+                                                            display: '-webkit-box',
+                                                            WebkitLineClamp: 2,
+                                                            WebkitBoxOrient: 'vertical',
+                                                            paddingRight: '20px'
+                                                        }}>{template.name}</h4>
+                                                        <span style={{
+                                                            fontSize: '9px',
+                                                            fontWeight: '800',
+                                                            padding: '2px 6px',
+                                                            borderRadius: '4px',
+                                                            background: template.type === 'html' ? '#059669' : '#3b82f6',
+                                                            color: 'white',
+                                                            textTransform: 'uppercase',
+                                                            flexShrink: 0
+                                                        }}>
+                                                            {template.type || 'TEXT'}
+                                                        </span>
+                                                    </div>
+                                                    <p style={{ fontSize: '10px', color: 'var(--text-tertiary)', margin: 0 }}>{new Date(template.createdAt).toLocaleDateString()}</p>
                                                 </div>
-                                                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '12px' }}>{new Date(template.createdAt).toLocaleDateString()}</p>
-                                                <button className="btn btn-outline" style={{ width: '100%', fontSize: '12px', padding: '6px' }} onClick={() => { if (window.confirm('Load this template? Current content will be replaced.')) { setEmailContent(template.content); showToast('Template loaded', 'success'); } }}>Load Template</button>
+
+                                                {/* Hover Actions */}
+                                                {hoveredTemplateId === template.id && (
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        inset: 0,
+                                                        background: 'rgba(255, 255, 255, 0.9)',
+                                                        borderRadius: '8px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '8px',
+                                                        zIndex: 2
+                                                    }}>
+                                                        <button
+                                                            onClick={() => {
+                                                                if (window.confirm(`Load template "${template.name}"? Current content will be replaced.`)) {
+                                                                    if (typeof template.content !== 'string') {
+                                                                        showToast('Failed to load: Template content is invalid', 'error');
+                                                                        return;
+                                                                    }
+                                                                    setEmailContent(template.content);
+                                                                    setEditorMode(template.type || 'text');
+                                                                    setActiveTemplateId(template.id);
+                                                                    showToast('Template loaded', 'success');
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                background: 'var(--primary-color)',
+                                                                color: 'white',
+                                                                border: 'none',
+                                                                borderRadius: '4px',
+                                                                padding: '6px 10px',
+                                                                fontSize: '11px',
+                                                                fontWeight: '600',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '4px'
+                                                            }}
+                                                        >
+                                                            <Edit size={12} /> Edit
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (window.confirm(`Delete template "${template.name}"?`)) {
+                                                                    deleteTemplate(template.id);
+                                                                    if (activeTemplateId === template.id) {
+                                                                        setActiveTemplateId(null);
+                                                                    }
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                background: '#ef4444',
+                                                                color: 'white',
+                                                                border: 'none',
+                                                                borderRadius: '4px',
+                                                                padding: '6px 10px',
+                                                                fontSize: '11px',
+                                                                fontWeight: '600',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '4px'
+                                                            }}
+                                                        >
+                                                            <Trash2 size={12} /> Delete
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
                                 ) : (
-                                    <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
-                                        <FileText size={32} style={{ opacity: 0.3, marginBottom: '8px' }} /><p>No saved templates yet.</p>
+                                    <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                                        <FileText size={40} style={{ opacity: 0.2 }} />
+                                        <div style={{ fontWeight: '600', fontSize: '14px' }}>No saved templates yet</div>
+                                        <p style={{ fontSize: '12px', margin: 0, color: 'var(--text-tertiary)' }}>Create and save your first template using the editor above.</p>
                                     </div>
                                 )}
                             </div>
@@ -820,12 +1287,16 @@ const Templates = () => {
                                     </div>
                                 </div>
 
-                                {/* Conditional Input Fields */}
                                 {subjectCreationMode === 'subject' ? (
                                     // Single Subject Mode
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                        <input type="text" className="input" placeholder="Enter a new subject line..." style={{ flex: 1 }} value={newSubject} onChange={(e) => setNewSubject(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addSubject()} />
-                                        <button className="btn btn-primary" onClick={addSubject}><Plus size={16} /> Add Subject</button>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <input type="text" className="input" placeholder="Enter a new subject line..." style={{ flex: 1 }} value={newSubject} onChange={(e) => setNewSubject(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addSubject()} />
+                                            <button className="btn btn-primary" onClick={addSubject}><Plus size={16} /> Add Subject</button>
+                                        </div>
+                                        <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+                                            💡 You can use variables like <code style={{ background: '#f1f5f9', padding: '2px 4px', borderRadius: '4px' }}>{"{{name}}"}</code>, <code style={{ background: '#f1f5f9', padding: '2px 4px', borderRadius: '4px' }}>{"{{company}}"}</code> etc. in your subject lines.
+                                        </p>
                                     </div>
                                 ) : (
                                     // Subject List Mode
@@ -890,7 +1361,7 @@ const Templates = () => {
                                             />
                                             {/* Hint */}
                                             <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', fontStyle: 'italic' }}>
-                                                💡 Press <kbd style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '10px' }}>Enter</kbd> to add a new subject to the list
+                                                💡 Press <kbd style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '10px' }}>Enter</kbd> to add. You can use variables like <code style={{ background: '#f1f5f9', padding: '2px 4px', borderRadius: '4px' }}>{"{{name}}"}</code> here too.
                                             </p>
                                         </div>
 
@@ -940,8 +1411,8 @@ const Templates = () => {
                         </div>
                     </div>
                 )}
-            </div >
-        </div >
+            </div>
+        </div>
     );
 };
 

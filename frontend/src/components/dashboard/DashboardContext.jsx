@@ -232,15 +232,22 @@ export const DashboardProvider = ({ children }) => {
         localStorage.setItem('savedTemplates', JSON.stringify(savedTemplates));
     }, [savedTemplates]);
 
-    const saveTemplate = (name, content) => {
+    const saveTemplate = (name, content, type) => {
         const newTemplate = {
             id: Date.now().toString(),
             name,
             content,
+            type,
             createdAt: new Date().toISOString()
         };
         setSavedTemplates(prev => [...prev, newTemplate]);
         return newTemplate;
+    };
+
+    const updateTemplate = (id, updates) => {
+        setSavedTemplates(prev => prev.map(t =>
+            t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t
+        ));
     };
 
     const deleteTemplate = (id) => {
@@ -379,7 +386,7 @@ export const DashboardProvider = ({ children }) => {
         prospectLists, setProspectLists,
         selectedListId, setSelectedListId,
         createProspectList, deleteProspectList, addEmailsToList, updateListEmails,
-        savedTemplates, saveTemplate, deleteTemplate,
+        savedTemplates, saveTemplate, updateTemplate, deleteTemplate,
         campaigns, setCampaigns, campaignsLoading,
         fetchCampaigns, createCampaign, updateCampaign, deleteCampaign,
         fetchEmailLists,
