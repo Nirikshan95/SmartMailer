@@ -1,9 +1,11 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useDashboard } from './DashboardContext';
-import { FileText, Upload, Save, Eye, Code, Plus, Trash2, RefreshCw, Copy, Check } from 'lucide-react';
+import { FileText, Upload, Save, Eye, Code, Plus, Trash2, RefreshCw, Copy, Check, ArrowLeft, Edit, CheckSquare, Download } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { html } from '@codemirror/lang-html';
 import { EditorView, Decoration, MatchDecorator, ViewPlugin } from "@codemirror/view";
+import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 
 // Custom Extension for Variable Highlighting
 const variableDecorator = new MatchDecorator({
@@ -61,6 +63,28 @@ const Templates = () => {
     const [showLoadDropdown, setShowLoadDropdown] = useState(false);
     const resizerRef = useRef(null);
     const textareaRef = useRef(null);
+
+    // Subject Creation Mode State
+    const [subjectCreationMode, setSubjectCreationMode] = useState('subject'); // 'subject' or 'list'
+    const [subjectLists, setSubjectLists] = useState([]); // Array of { name: string, subjects: string[] }
+    const [currentListName, setCurrentListName] = useState('');
+    const [currentListSubjects, setCurrentListSubjects] = useState([]);
+    const [selectedListIndex, setSelectedListIndex] = useState(null);
+    const [selectedListsForDelete, setSelectedListsForDelete] = useState(new Set());
+
+    // Handle Subject Management
+    const addSubject = () => {
+        if (newSubject.trim()) {
+            setSubjects([...subjects, newSubject.trim()]);
+            setNewSubject('');
+            showToast('Subject added', 'success');
+        }
+    };
+
+    const removeSubject = (index) => {
+        setSubjects(subjects.filter((_, i) => i !== index));
+        showToast('Subject removed', 'info');
+    };
 
     // Handle resizing
     useEffect(() => {
@@ -126,30 +150,100 @@ const Templates = () => {
         }
     };
 
-    // Handle Subject File Upload
+    // Handle Subject File Upload - Creates subject list or appends to current list
     const handleSubjectFile = (e) => {
         const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
+        if (!file) return;
+
+        const fileName = file.name.toLowerCase();
+        const reader = new FileReader();
+
+        reader.onload = (event) => {
+            let subjectsArr = [];
+            const listName = file.name.replace(/\.[^/.]+$/, '');
+
+            if (fileName.endsWith('.csv')) {
+                const text = event.target.result;
+                const result = Papa.parse(text, { skipEmptyLines: true });
+                if (result.data.length > 0) {
+                    const headers = result.data[0];
+                    const subjectIndex = headers.findIndex(h => String(h).toLowerCase().includes('subject'));
+                    const indexToUse = subjectIndex !== -1 ? subjectIndex : 0;
+
+                    // If it has headers, slice(1), else use all
+                    const dataToProcess = subjectIndex !== -1 ? result.data.slice(1) : result.data;
+                    subjectsArr = dataToProcess.map(row => String(row[indexToUse] || '').trim()).filter(s => s);
+                }
+            } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                const data = new Uint8Array(event.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheet = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheet];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                if (jsonData.length > 0) {
+                    const headers = jsonData[0];
+                    const subjectIndex = headers.findIndex(h => String(h).toLowerCase().includes('subject'));
+                    const indexToUse = subjectIndex !== -1 ? subjectIndex : 0;
+
+                    const dataToProcess = subjectIndex !== -1 ? jsonData.slice(1) : jsonData;
+                    subjectsArr = dataToProcess.map(row => String(row[indexToUse] || '').trim()).filter(s => s);
+                }
+            } else {
                 const content = event.target.result;
-                const lines = content.split('\n').filter(line => line.trim() !== '');
-                setSubjects(prev => [...new Set([...prev, ...lines])]); // Merge and unique
-                setStatus(`✅ Loaded ${lines.length} subjects`);
-            };
+                subjectsArr = content.split('\n').map(line => line.trim()).filter(line => line !== '');
+            }
+
+            if (subjectsArr.length > 0) {
+                if (subjectCreationMode === 'list') {
+                    setCurrentListSubjects(prev => [...prev, ...subjectsArr]);
+                    if (!currentListName) setCurrentListName(listName);
+                    showToast(`Imported ${subjectsArr.length} subjects to current list`, 'success');
+                } else {
+                    setSubjectLists(prev => [...prev, { name: listName, subjects: subjectsArr }]);
+                    showToast(`Created new subject list "${listName}" with ${subjectsArr.length} subjects`, 'success');
+                }
+            } else {
+                showToast('No valid subjects found in file', 'error');
+            }
+        };
+
+        if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+            reader.readAsArrayBuffer(file);
+        } else {
             reader.readAsText(file);
         }
+
+        // Reset input
+        e.target.value = '';
     };
 
-    const addSubject = () => {
-        if (newSubject.trim()) {
-            setSubjects(prev => [...prev, newSubject.trim()]);
-            setNewSubject('');
+    // Handle multi-select toggle for lists
+    const toggleListSelection = (listIndex) => {
+        setSelectedListsForDelete(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(listIndex)) {
+                newSet.delete(listIndex);
+            } else {
+                newSet.add(listIndex);
+            }
+            return newSet;
+        });
+    };
+
+    // Delete selected lists
+    const deleteSelectedLists = () => {
+        if (selectedListsForDelete.size > 0 && window.confirm(`Delete ${selectedListsForDelete.size} selected list(s)?`)) {
+            setSubjectLists(prev => prev.filter((_, i) => !selectedListsForDelete.has(i)));
+            setSelectedListsForDelete(new Set());
+            showToast(`${selectedListsForDelete.size} list(s) deleted`, 'info');
         }
     };
 
-    const removeSubject = (index) => {
-        setSubjects(prev => prev.filter((_, i) => i !== index));
+    // Truncate text with ellipsis
+    const truncateText = (text, maxLength = 50) => {
+        if (text.length <= maxLength) return text;
+        return text.substring(0, maxLength) + '...';
     };
 
     const insertVariable = (variable) => {
@@ -190,16 +284,8 @@ const Templates = () => {
     const renderPreview = () => {
         if (!emailContent) return '<div style="color: #9ca3af; text-align: center; padding: 40px;">No content to preview</div>';
 
-        let preview = emailContent;
-        // Basic variable replacement
-        preview = preview.replace(/{{name}}/gi, previewContact.name);
-        preview = preview.replace(/{name}/gi, previewContact.name);
-        preview = preview.replace(/{{company}}/gi, previewContact.company);
-        preview = preview.replace(/{company}/gi, previewContact.company);
-        preview = preview.replace(/{{email}}/gi, previewContact.email);
-        preview = preview.replace(/{email}/gi, previewContact.email);
-
-        return preview;
+        // Return content as-is without variable replacement
+        return emailContent;
     };
 
     // UI State for Tabs
@@ -474,22 +560,6 @@ const Templates = () => {
                                             alignItems: 'center'
                                         }}>
                                             <h4 style={{ margin: 0, fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>Preview</h4>
-                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                <input
-                                                    className="input"
-                                                    style={{ height: '28px', fontSize: '12px', width: '120px' }}
-                                                    value={previewContact.name}
-                                                    onChange={e => setPreviewContact({ ...previewContact, name: e.target.value })}
-                                                    placeholder="Name"
-                                                />
-                                                <input
-                                                    className="input"
-                                                    style={{ height: '28px', fontSize: '12px', width: '120px' }}
-                                                    value={previewContact.company}
-                                                    onChange={e => setPreviewContact({ ...previewContact, company: e.target.value })}
-                                                    placeholder="Company"
-                                                />
-                                            </div>
                                         </div>
                                         <div style={{ flex: 1, padding: '24px', overflowY: 'auto' }}>
                                             <div
@@ -538,49 +608,338 @@ const Templates = () => {
                             </div>
                         </div>
                     </div>
-                )
-                }
+                )}
 
                 {/* Subject Lines Tab Content */}
-                {
-                    activeTab === 'subjects' && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text-primary)', margin: 0 }}>Subject Lines Manager</h2>
-                            <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden', marginBottom: 0 }}>
-                                <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <div>
-                                            <h3 style={{ fontSize: '16px', fontWeight: 'bold' }}>Active Subjects</h3>
-                                            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>{subjects.length} active subjects</p>
-                                        </div>
-                                        <button className="btn btn-outline" style={{ fontSize: '12px' }} onClick={() => subjectFileRef.current?.click()}><Upload size={14} /> Bulk Upload (.txt)</button>
-                                        <input type="file" ref={subjectFileRef} accept=".txt" onChange={handleSubjectFile} style={{ display: 'none' }} />
-                                    </div>
-                                </div>
+                {activeTab === 'subjects' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                        <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--text-primary)', margin: 0 }}>Subject Lines Manager</h2>
+
+                        {/* Two Cards Section */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                            {/* Card 1: Individual Subjects */}
+                            <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', height: '400px' }}>
                                 <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', background: '#f8fafc' }}>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                        <input type="text" className="input" placeholder="Enter a new subject line..." style={{ flex: 1 }} value={newSubject} onChange={(e) => setNewSubject(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addSubject()} />
-                                        <button className="btn btn-primary" onClick={addSubject}><Plus size={16} /> Add Subject</button>
-                                    </div>
+                                    <h3 style={{ fontSize: '16px', fontWeight: 'bold', margin: 0 }}>Individual Subjects</h3>
+                                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>{subjects.length} subjects</p>
                                 </div>
-                                <div style={{ maxHeight: '60vh', overflowY: 'auto', padding: '0' }}>
+                                <div style={{ flex: 1, overflowY: 'auto', padding: '0' }}>
                                     {subjects.length > 0 ? (
                                         <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
                                             {subjects.map((subject, index) => (
-                                                <li key={index} style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <li key={index} style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                     <span style={{ flex: 1, marginRight: '16px' }} title={subject}>{subject}</span>
                                                     <button onClick={() => removeSubject(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '4px' }}><Trash2 size={16} /></button>
                                                 </li>
                                             ))}
                                         </ul>
                                     ) : (
-                                        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>No subject lines added yet. Add one above or upload a list.</div>
+                                        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>No subjects added yet</div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Card 2: Subject Lists */}
+                            <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', height: '400px' }}>
+                                <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <h3 style={{ fontSize: '16px', fontWeight: 'bold', margin: 0 }}>Subject Lists</h3>
+                                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>{subjectLists.length} lists</p>
+                                    </div>
+                                    {selectedListsForDelete.size > 0 && (
+                                        <button
+                                            onClick={deleteSelectedLists}
+                                            className="btn btn-primary"
+                                            style={{ fontSize: '12px', padding: '6px 12px' }}
+                                        >
+                                            <Trash2 size={14} /> Delete Selected ({selectedListsForDelete.size})
+                                        </button>
+                                    )}
+                                </div>
+                                <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+                                    {subjectLists.length > 0 ? (
+                                        selectedListIndex === null ? (
+                                            // List view - show only list names with hover actions
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                {subjectLists.map((list, listIndex) => (
+                                                    <div
+                                                        key={listIndex}
+                                                        style={{
+                                                            border: selectedListsForDelete.has(listIndex) ? '2px solid var(--primary-color)' : '1px solid var(--border-color)',
+                                                            borderRadius: '8px',
+                                                            padding: '12px',
+                                                            background: selectedListsForDelete.has(listIndex) ? 'rgba(5, 150, 105, 0.05)' : 'var(--surface-color)',
+                                                            cursor: 'pointer',
+                                                            transition: 'all 0.2s',
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            position: 'relative'
+                                                        }}
+                                                        onMouseEnter={(e) => {
+                                                            e.currentTarget.style.background = '#f8fafc';
+                                                            e.currentTarget.querySelector('.hover-actions').style.opacity = '1';
+                                                        }}
+                                                        onMouseLeave={(e) => {
+                                                            e.currentTarget.style.background = selectedListsForDelete.has(listIndex) ? 'rgba(5, 150, 105, 0.05)' : 'var(--surface-color)';
+                                                            e.currentTarget.querySelector('.hover-actions').style.opacity = '0';
+                                                        }}
+                                                    >
+                                                        <div style={{ flex: 1 }} onClick={() => setSelectedListIndex(listIndex)}>
+                                                            <h4 style={{ fontSize: '14px', fontWeight: '600', margin: 0 }}>{list.name}</h4>
+                                                            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>{list.subjects.length} subjects</p>
+                                                        </div>
+                                                        <div className="hover-actions" style={{ opacity: 0, display: 'flex', gap: '4px', transition: 'opacity 0.2s' }}>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    toggleListSelection(listIndex);
+                                                                }}
+                                                                style={{
+                                                                    background: selectedListsForDelete.has(listIndex) ? 'var(--primary-color)' : 'white',
+                                                                    border: '1px solid var(--border-color)',
+                                                                    borderRadius: '4px',
+                                                                    cursor: 'pointer',
+                                                                    padding: '4px',
+                                                                    color: selectedListsForDelete.has(listIndex) ? 'white' : 'var(--text-tertiary)'
+                                                                }}
+                                                                title={selectedListsForDelete.has(listIndex) ? 'Deselect' : 'Select for deletion'}
+                                                            >
+                                                                <CheckSquare size={14} />
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const newName = prompt('Enter new list name:', list.name);
+                                                                    if (newName && newName.trim()) {
+                                                                        setSubjectLists(prev => prev.map((l, i) => i === listIndex ? { ...l, name: newName.trim() } : l));
+                                                                        showToast('List name updated', 'success');
+                                                                    }
+                                                                }}
+                                                                style={{ background: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer', padding: '4px', color: 'var(--text-tertiary)' }}
+                                                                title="Edit list name"
+                                                            >
+                                                                <Edit size={14} />
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    if (window.confirm(`Delete list "${list.name}"?`)) {
+                                                                        setSubjectLists(prev => prev.filter((_, i) => i !== listIndex));
+                                                                        showToast('Subject list deleted', 'info');
+                                                                    }
+                                                                }}
+                                                                style={{ background: 'white', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer', padding: '4px', color: 'var(--text-tertiary)' }}
+                                                                title="Delete list"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            // Detail view - show subjects in selected list
+                                            <div>
+                                                <button
+                                                    onClick={() => setSelectedListIndex(null)}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px',
+                                                        padding: '8px 12px',
+                                                        border: '1px solid var(--border-color)',
+                                                        borderRadius: '6px',
+                                                        background: 'white',
+                                                        cursor: 'pointer',
+                                                        fontSize: '13px',
+                                                        fontWeight: '600',
+                                                        color: 'var(--text-primary)',
+                                                        marginBottom: '12px'
+                                                    }}
+                                                >
+                                                    <ArrowLeft size={16} /> Back to Lists
+                                                </button>
+                                                <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', background: 'var(--surface-color)' }}>
+                                                    <h4 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 8px 0' }}>{subjectLists[selectedListIndex].name}</h4>
+                                                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>{subjectLists[selectedListIndex].subjects.length} subjects</p>
+                                                    <div style={{ maxHeight: '200px', overflowY: 'auto', fontSize: '13px', color: 'var(--text-primary)' }}>
+                                                        {subjectLists[selectedListIndex].subjects.map((subject, idx) => (
+                                                            <div key={idx} style={{ padding: '6px 0', borderBottom: idx < subjectLists[selectedListIndex].subjects.length - 1 ? '1px solid #e2e8f0' : 'none' }}>
+                                                                {truncateText(subject)}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )
+                                    ) : (
+                                        <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                                            <FileText size={32} style={{ opacity: 0.3, marginBottom: '8px' }} />
+                                            <p>No subject lists created yet</p>
+                                        </div>
                                     )}
                                 </div>
                             </div>
                         </div>
-                    )
-                }
+
+                        {/* Creation Panel */}
+                        <div className="card" style={{ display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden' }}>
+                            <div style={{ padding: '16px', borderBottom: '1px solid var(--border-color)', background: '#f8fafc' }}>
+                                <h3 style={{ fontSize: '16px', fontWeight: 'bold', margin: 0 }}>Create Subject or Subject List</h3>
+                            </div>
+                            <div style={{ padding: '16px' }}>
+                                {/* Selection: Subject or Subject List */}
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
+                                        Select Type:
+                                    </label>
+                                    <div style={{ display: 'flex', gap: '16px' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                            <input
+                                                type="radio"
+                                                name="subjectType"
+                                                value="subject"
+                                                checked={subjectCreationMode === 'subject'}
+                                                onChange={() => setSubjectCreationMode('subject')}
+                                                style={{ cursor: 'pointer' }}
+                                            />
+                                            <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Single Subject</span>
+                                        </label>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                            <input
+                                                type="radio"
+                                                name="subjectType"
+                                                value="list"
+                                                checked={subjectCreationMode === 'list'}
+                                                onChange={() => setSubjectCreationMode('list')}
+                                                style={{ cursor: 'pointer' }}
+                                            />
+                                            <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Subject List</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {/* Conditional Input Fields */}
+                                {subjectCreationMode === 'subject' ? (
+                                    // Single Subject Mode
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <input type="text" className="input" placeholder="Enter a new subject line..." style={{ flex: 1 }} value={newSubject} onChange={(e) => setNewSubject(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addSubject()} />
+                                        <button className="btn btn-primary" onClick={addSubject}><Plus size={16} /> Add Subject</button>
+                                    </div>
+                                ) : (
+                                    // Subject List Mode
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                                <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', margin: 0 }}>
+                                                    List Name:
+                                                </label>
+                                                <button
+                                                    onClick={() => subjectFileRef.current.click()}
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        color: 'var(--primary-color)',
+                                                        fontSize: '12px',
+                                                        fontWeight: '600',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                    }}
+                                                >
+                                                    <Upload size={14} /> Import from File
+                                                </button>
+                                                <input
+                                                    type="file"
+                                                    ref={subjectFileRef}
+                                                    onChange={handleSubjectFile}
+                                                    accept=".csv,.xlsx,.xls,.txt"
+                                                    style={{ display: 'none' }}
+                                                />
+                                            </div>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="Enter a name for this subject list..."
+                                                value={currentListName}
+                                                onChange={(e) => setCurrentListName(e.target.value)}
+                                                style={{ width: '100%' }}
+                                            />
+                                        </div>
+
+                                        {/* Subject Content Input with Hint */}
+                                        <div>
+                                            <label style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                                                Subject Content:
+                                            </label>
+                                            <input
+                                                type="text"
+                                                className="input"
+                                                placeholder="Enter a subject line..."
+                                                value={newSubject}
+                                                onChange={(e) => setNewSubject(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' && newSubject.trim()) {
+                                                        setCurrentListSubjects(prev => [...prev, newSubject.trim()]);
+                                                        setNewSubject('');
+                                                    }
+                                                }}
+                                                style={{ width: '100%' }}
+                                            />
+                                            {/* Hint */}
+                                            <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px', fontStyle: 'italic' }}>
+                                                💡 Press <kbd style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '10px' }}>Enter</kbd> to add a new subject to the list
+                                            </p>
+                                        </div>
+
+                                        {/* List Preview */}
+                                        {currentListSubjects.length > 0 && (
+                                            <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '12px', border: '1px solid var(--border-color)' }}>
+                                                <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                                    Subjects in this list ({currentListSubjects.length}):
+                                                </div>
+                                                <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: '13px', maxHeight: '200px', overflowY: 'auto' }}>
+                                                    {currentListSubjects.map((subject, index) => (
+                                                        <li key={index} style={{ padding: '4px 0', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <span>{subject}</span>
+                                                            <button
+                                                                onClick={() => setCurrentListSubjects(prev => prev.filter((_, i) => i !== index))}
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '4px' }}
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+
+                                        {/* Save List Button */}
+                                        <button
+                                            className="btn btn-primary"
+                                            onClick={() => {
+                                                if (currentListName.trim() && currentListSubjects.length > 0) {
+                                                    setSubjectLists(prev => [...prev, { name: currentListName.trim(), subjects: [...currentListSubjects] }]);
+                                                    setCurrentListName('');
+                                                    setCurrentListSubjects([]);
+                                                    showToast(`Subject list "${currentListName}" saved with ${currentListSubjects.length} subjects`, 'success');
+                                                } else {
+                                                    showToast('Please enter a list name and add at least one subject', 'error');
+                                                }
+                                            }}
+                                            disabled={!currentListName.trim() || currentListSubjects.length === 0}
+                                            style={{ alignSelf: 'flex-start', opacity: (!currentListName.trim() || currentListSubjects.length === 0) ? 0.5 : 1 }}
+                                        >
+                                            <Save size={16} /> Save List
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div >
         </div >
     );

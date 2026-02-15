@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { useDashboard } from './DashboardContext';
 import { Upload, FileText, Check, AlertCircle, X, Plus, Trash2, Search, Filter, Download, MoreVertical, RefreshCw, Users } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import Papa from 'papaparse';
 
 const Prospects = () => {
     const {
@@ -41,14 +43,47 @@ const Prospects = () => {
 
     const handleFileUpload = (event) => {
         const file = event.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
+        if (!file) return;
+
+        const fileName = file.name.toLowerCase();
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+            let headers = [];
+            let rows = [];
+
+            if (fileName.endsWith('.csv')) {
                 const text = e.target.result;
-                const rows = text.split('\n').map(row => row.split(','));
-                const headers = rows[0].map(header => header.trim());
+                const result = Papa.parse(text, { skipEmptyLines: true });
+                headers = result.data[0].map(h => h.trim());
+                rows = result.data.slice(1);
+            } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                headers = jsonData[0].map(h => String(h).trim());
+                rows = jsonData.slice(1);
+            } else if (fileName.endsWith('.txt')) {
+                const text = e.target.result;
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+                // Check if it's a simple list of emails or delimited
+                const firstLine = lines[0];
+                if (firstLine.includes(',') || firstLine.includes('\t')) {
+                    const delimiter = firstLine.includes(',') ? ',' : '\t';
+                    headers = firstLine.split(delimiter).map(h => h.trim());
+                    rows = lines.slice(1).map(l => l.split(delimiter));
+                } else {
+                    // Simple list of emails - treat as one column
+                    headers = ['Email'];
+                    rows = lines.map(l => [l]);
+                }
+            }
+
+            if (headers.length > 0) {
                 setCsvHeaders(headers);
-                setCsvRows(rows.slice(1).filter(row => row.length === headers.length));
+                setCsvRows(rows.filter(row => row.length > 0));
                 setShowColumnMapping(true);
 
                 // Auto-detect columns
@@ -60,7 +95,12 @@ const Prospects = () => {
                     else if (lowerHeader.includes('company')) newMapping.company = header;
                 });
                 setColumnMapping(newMapping);
-            };
+            }
+        };
+
+        if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+            reader.readAsArrayBuffer(file);
+        } else {
             reader.readAsText(file);
         }
     };
