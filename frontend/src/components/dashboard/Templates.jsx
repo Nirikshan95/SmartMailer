@@ -44,7 +44,7 @@ const SAMPLE_HTML = `<div style="font-family: sans-serif; line-height: 1.5;">
 </div>`;
 
 const Templates = () => {
-    const { emailContent, setEmailContent, subjects, setSubjects, setStatus, savedTemplates, saveTemplate, updateTemplate, deleteTemplate, showToast } = useDashboard();
+    const { emailContent, setEmailContent, subjects, setSubjects, setStatus, savedTemplates, saveTemplate, updateTemplate, deleteTemplate, showToast, subjectLists, setSubjectLists } = useDashboard();
     const [activeTemplateId, setActiveTemplateId] = useState(null);
     const [showSaveDropdown, setShowSaveDropdown] = useState(false);
     const templateFileRef = useRef(null);
@@ -81,7 +81,7 @@ const Templates = () => {
 
     // Subject Creation Mode State
     const [subjectCreationMode, setSubjectCreationMode] = useState('subject'); // 'subject' or 'list'
-    const [subjectLists, setSubjectLists] = useState([]); // Array of { name: string, subjects: string[] }
+    // subjectLists is now from context
     const [currentListName, setCurrentListName] = useState('');
     const [currentListSubjects, setCurrentListSubjects] = useState([]);
     const [selectedListIndex, setSelectedListIndex] = useState(null);

@@ -9,6 +9,10 @@ export const useDashboard = () => {
 export const DashboardProvider = ({ children }) => {
     // State from original tool
     const [subjects, setSubjects] = useState([]);
+    const [subjectLists, setSubjectLists] = useState(() => {
+        const saved = localStorage.getItem('subjectLists');
+        return saved ? JSON.parse(saved) : [];
+    });
     const [emailList, setEmailList] = useState([]); // Deprecated in favor of selected list, but kept for compatibility
     const [completedEmails, setCompletedEmails] = useState([]);
     const [emailContent, setEmailContent] = useState(() => {
@@ -229,6 +233,10 @@ export const DashboardProvider = ({ children }) => {
     });
 
     useEffect(() => {
+        localStorage.setItem('subjectLists', JSON.stringify(subjectLists));
+    }, [subjectLists]);
+
+    useEffect(() => {
         localStorage.setItem('savedTemplates', JSON.stringify(savedTemplates));
     }, [savedTemplates]);
 
@@ -364,6 +372,7 @@ export const DashboardProvider = ({ children }) => {
         theme,
         toggleTheme,
         subjects, setSubjects,
+        subjectLists, setSubjectLists,
         emailList: currentEmails, // Map current list emails to emailList for compatibility
         setEmailList: (emails) => updateListEmails(selectedListId, emails), // Map setter to update current list
         completedEmails, setCompletedEmails,

@@ -101,7 +101,67 @@ function loadEmailRecords() {
         loadedData.campaigns = [];
       }
 
+      // Migration: Backfill missing subjectConfig/contentConfig for campaigns
+      // This enables correct campaign details for older records.
+      let migrated = false;
+      if (Array.isArray(loadedData.campaigns)) {
+        loadedData.campaigns = loadedData.campaigns.map(c => {
+          if (!c || typeof c !== 'object') return c;
+          const next = { ...c };
+
+          if (!next.subjectConfig || typeof next.subjectConfig !== 'object') {
+            next.subjectConfig = {
+              source: 'new',
+              selectedSubjects: next.subject ? [next.subject] : [],
+              sendingMode: 'random',
+              currentIndex: 0
+            };
+            migrated = true;
+          } else {
+            if (!Array.isArray(next.subjectConfig.selectedSubjects)) {
+              next.subjectConfig.selectedSubjects = next.subject ? [next.subject] : [];
+              migrated = true;
+            }
+            if (!next.subjectConfig.source) {
+              next.subjectConfig.source = 'new';
+              migrated = true;
+            }
+            if (!next.subjectConfig.sendingMode) {
+              next.subjectConfig.sendingMode = 'random';
+              migrated = true;
+            }
+            if (typeof next.subjectConfig.currentIndex !== 'number') {
+              next.subjectConfig.currentIndex = 0;
+              migrated = true;
+            }
+          }
+
+          if (!next.contentConfig || typeof next.contentConfig !== 'object') {
+            next.contentConfig = {
+              source: 'new',
+              selectedContent: next.content || ''
+            };
+            migrated = true;
+          } else {
+            if (typeof next.contentConfig.selectedContent !== 'string') {
+              next.contentConfig.selectedContent = next.content || '';
+              migrated = true;
+            }
+            if (!next.contentConfig.source) {
+              next.contentConfig.source = 'new';
+              migrated = true;
+            }
+          }
+
+          return next;
+        });
+      }
+
       emailRecords = loadedData;
+
+      if (migrated) {
+        saveEmailRecords();
+      }
     }
   } catch (error) {
     console.error('Failed to load email records:', error);
@@ -532,8 +592,20 @@ app.get('/campaigns', async (req, res) => {
 
 app.post('/campaigns', async (req, res) => {
   try {
-    const { name, subject, content, targetListId } = req.body;
+    const { name, subject, content, targetListId, subjectConfig, contentConfig } = req.body;
     if (!name) return res.status(400).json({ success: false, message: 'Name required' });
+
+    const normalizedSubjectConfig = subjectConfig || {
+      source: 'new',
+      selectedSubjects: subject ? [subject] : [],
+      sendingMode: 'random',
+      currentIndex: 0
+    };
+
+    const normalizedContentConfig = contentConfig || {
+      source: 'new',
+      selectedContent: content || ''
+    };
 
     const newCampaign = {
       id: Date.now().toString(),
@@ -542,6 +614,8 @@ app.post('/campaigns', async (req, res) => {
       subject: subject || '',
       content: content || '',
       targetListId: targetListId || '',
+      subjectConfig: normalizedSubjectConfig,
+      contentConfig: normalizedContentConfig,
       createdAt: new Date().toISOString(),
       stats: { sent: 0, failed: 0, total: 0 }
     };

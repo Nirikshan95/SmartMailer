@@ -7,7 +7,7 @@ function getCampaigns(req, res) {
 
 function createCampaign(req, res) {
     try {
-        const { name, subject, content, targetListId } = req.body;
+        const { name, subject, content, targetListId, subjectConfig } = req.body;
         if (!name) return res.status(400).json({ success: false, message: 'Name required' });
 
         const newCampaign = {
@@ -17,6 +17,12 @@ function createCampaign(req, res) {
             subject: subject || '',
             content: content || '',
             targetListId: targetListId || '',
+            subjectConfig: subjectConfig || {
+                source: 'new',
+                selectedSubjects: [],
+                sendingMode: 'random',
+                currentIndex: 0
+            },
             createdAt: new Date().toISOString(),
             stats: { sent: 0, failed: 0, total: 0 }
         };
