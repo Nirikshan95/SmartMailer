@@ -16,28 +16,49 @@ const Campaigns = () => {
     const navigate = useNavigate();
 
     const [viewMode, setViewMode] = useState('list'); // 'list', 'create', 'monitor', 'details'
-    const [wizardStep, setWizardStep] = useState(1);
+    const [wizardStep, setWizardStep] = useState(() => {
+        const saved = localStorage.getItem('campaign_wizard_step');
+        return saved ? parseInt(saved, 10) : 1;
+    });
     const [activeCampaign, setActiveCampaign] = useState(null);
     const [executionLog, setExecutionLog] = useState([]);
     const [editingId, setEditingId] = useState(null);
 
     // Draft Campaign State
-    const [draft, setDraft] = useState({
-        name: '',
-        subject: '',
-        targetListId: '',
-        content: '',
-        subjectConfig: {
-            source: 'new', // 'template', 'list', or 'new'
-            selectedSubjects: [], // array of subject strings
-            sendingMode: 'random', // 'random' or 'sequential'
-            currentIndex: 0 // for sequential mode
-        },
-        contentConfig: {
-            source: 'new', // 'new', 'template', or 'create'
-            selectedContent: '' // HTML content string
+    const [draft, setDraft] = useState(() => {
+        const saved = localStorage.getItem('campaign_draft');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                console.error('Failed to parse campaign draft', e);
+            }
         }
+        return {
+            name: '',
+            subject: '',
+            targetListId: '',
+            content: '',
+            subjectConfig: {
+                source: 'new', // 'template', 'list', or 'new'
+                selectedSubjects: [], // array of subject strings
+                sendingMode: 'random', // 'random' or 'sequential'
+                currentIndex: 0 // for sequential mode
+            },
+            contentConfig: {
+                source: 'new', // 'new', 'template', or 'create'
+                selectedContent: '' // HTML content string
+            }
+        };
     });
+
+    // Save draft and wizard step to localStorage
+    useEffect(() => {
+        if (!editingId) {
+            localStorage.setItem('campaign_draft', JSON.stringify(draft));
+            localStorage.setItem('campaign_wizard_step', wizardStep.toString());
+        }
+    }, [draft, wizardStep, editingId]);
 
     const resetDraft = () => {
         setDraft({
@@ -56,6 +77,8 @@ const Campaigns = () => {
                 selectedContent: ''
             }
         });
+        localStorage.removeItem('campaign_draft');
+        localStorage.removeItem('campaign_wizard_step');
         setEditingId(null);
         setWizardStep(1);
     };
@@ -180,6 +203,7 @@ const Campaigns = () => {
 
         setIsSending(true);
         setShouldStop(false);
+        await updateCampaign(activeCampaign.id, { status: 'sending' });
         log('🚀 Starting campaign execution...');
         log(`📋 Using ${activeCampaign.subjectConfig.selectedSubjects.length} subjects in ${activeCampaign.subjectConfig.sendingMode} mode`);
 
@@ -297,6 +321,15 @@ const Campaigns = () => {
 
         const subjectCount = subjectConfig.selectedSubjects ? subjectConfig.selectedSubjects.length : 0;
 
+        const statusMap = {
+            'draft': 'CREATED',
+            'completed': 'COMPLETED',
+            'sending': 'IN PROGRESS',
+            'paused': 'PAUSED'
+        };
+
+        const formattedStatus = statusMap[campaign.status] || (campaign.status ? campaign.status.toUpperCase() : 'CREATED');
+
         return {
             ...campaign,
             subjectConfig,
@@ -305,7 +338,7 @@ const Campaigns = () => {
                 subjectSource: sourceLabels[subjectConfig.source] || 'Custom',
                 subjectCount: subjectCount,
                 isSequential: subjectConfig.sendingMode === 'sequential',
-                formattedStatus: campaign.status === 'draft' ? 'DRAFT' : campaign.status === 'completed' ? 'COMPLETED' : campaign.status.toUpperCase()
+                formattedStatus
             }
         };
     };
@@ -391,7 +424,21 @@ const Campaigns = () => {
                         <div style={{ display: 'grid', gap: '16px' }}>
                             <div>
                                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Status</div>
-                                <div style={{ display: 'inline-block', padding: '4px 8px', borderRadius: '4px', background: details.status === 'draft' ? '#fef3c7' : '#d1fae5', color: details.status === 'draft' ? '#d97706' : '#059669', fontSize: '12px', fontWeight: 'bold' }}>
+                                <div style={{
+                                    display: 'inline-block',
+                                    padding: '4px 8px',
+                                    borderRadius: '4px',
+                                    background: details.status === 'draft' ? '#eef2ff' : // Light Blue for Created/Draft
+                                        details.status === 'sending' ? '#ecfdf5' : // Light Green for In Progress
+                                            details.status === 'completed' ? '#f0f9ff' : // Light Blue-ish for Completed
+                                                '#f3f4f6', // Gray for Paused/Other
+                                    color: details.status === 'draft' ? '#4f46e5' :
+                                        details.status === 'sending' ? '#059669' :
+                                            details.status === 'completed' ? '#0369a1' :
+                                                '#6b7280',
+                                    fontSize: '12px',
+                                    fontWeight: 'bold'
+                                }}>
                                     {details.details.formattedStatus}
                                 </div>
                             </div>
@@ -800,6 +847,28 @@ const Campaigns = () => {
         </div>
     );
 
+    const getDisplayCampaigns = () => {
+        const display = [...campaigns];
+        const localDraft = localStorage.getItem('campaign_draft');
+        if (localDraft) {
+            try {
+                const draftData = JSON.parse(localDraft);
+                if (draftData && draftData.name) {
+                    display.unshift({
+                        ...draftData,
+                        id: 'local_draft',
+                        status: 'local_draft',
+                        createdAt: new Date().toISOString(),
+                        isLocalDraft: true
+                    });
+                }
+            } catch (e) {
+                console.error('Error parsing local draft', e);
+            }
+        }
+        return display;
+    };
+
     return (
         <div>
             {viewMode === 'list' && (
@@ -827,7 +896,7 @@ const Campaigns = () => {
                                     </div>
                                 ))}
                             </div>
-                        ) : campaigns.length === 0 ? (
+                        ) : getDisplayCampaigns().length === 0 ? (
                             <div style={{ textAlign: 'center', padding: '64px', color: 'var(--text-secondary)', background: 'white', borderRadius: '16px' }}>
                                 <Send size={48} style={{ opacity: 0.3, marginBottom: '16px' }} />
                                 <p style={{ fontSize: '16px', fontWeight: '500' }}>No campaigns yet</p>
@@ -835,62 +904,125 @@ const Campaigns = () => {
                             </div>
                         ) : (
                             <div style={{ display: 'grid', gap: '16px' }}>
-                                {campaigns.map(campaign => (
-                                    <div
-                                        key={campaign.id}
-                                        className="card"
-                                        style={{ display: 'flex', alignItems: 'center', padding: '20px', marginBottom: 0, cursor: 'pointer', transition: 'box-shadow 0.2s' }}
-                                        onClick={() => { setActiveCampaign(campaign); setViewMode('details'); }}
-                                        onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'}
-                                        onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)'}
-                                    >
-                                        <div style={{ marginRight: '16px', padding: '12px', borderRadius: '12px', backgroundColor: '#eef2ff', color: 'var(--primary-color)' }}>
-                                            <Send size={20} />
-                                        </div>
-                                        <div style={{ flex: 1 }}>
-                                            <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '4px' }}>{campaign.name}</h3>
-                                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', gap: '16px' }}>
-                                                <span>{new Date(campaign.createdAt).toLocaleDateString()}</span>
-                                                <span>•</span>
-                                                <span>Status: <strong style={{ color: campaign.status === 'draft' ? '#f59e0b' : '#10b981' }}>{campaign.status.toUpperCase()}</strong></span>
+                                {getDisplayCampaigns().map(campaign => {
+                                    const isDraft = campaign.isLocalDraft;
+                                    return (
+                                        <div
+                                            key={campaign.id}
+                                            className="card"
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                padding: '20px',
+                                                marginBottom: 0,
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s',
+                                                border: isDraft ? '1px dashed var(--primary-color)' : '1px solid var(--border-color)',
+                                                background: isDraft ? 'var(--surface-color)' : 'var(--card-bg)'
+                                            }}
+                                            onClick={() => {
+                                                if (isDraft) {
+                                                    setViewMode('create');
+                                                } else {
+                                                    setActiveCampaign(campaign);
+                                                    setViewMode('details');
+                                                }
+                                            }}
+                                            onMouseEnter={e => {
+                                                e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+                                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                            }}
+                                            onMouseLeave={e => {
+                                                e.currentTarget.style.boxShadow = 'none';
+                                                e.currentTarget.style.transform = 'none';
+                                            }}
+                                        >
+                                            <div style={{
+                                                marginRight: '16px',
+                                                padding: '12px',
+                                                borderRadius: '12px',
+                                                backgroundColor: isDraft ? '#eef2ff' : '#eff6ff',
+                                                color: 'var(--primary-color)'
+                                            }}>
+                                                {isDraft ? <FileText size={20} /> : <Send size={20} />}
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '4px' }}>
+                                                    {campaign.name} {isDraft && <span style={{ fontSize: '10px', verticalAlign: 'middle', background: 'var(--primary-color)', color: 'white', padding: '2px 6px', borderRadius: '10px', marginLeft: '8px' }}>UNSAVED</span>}
+                                                </h3>
+                                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', gap: '16px' }}>
+                                                    <span>{new Date(campaign.createdAt).toLocaleDateString()}</span>
+                                                    <span>•</span>
+                                                    <span>Status: <strong style={{
+                                                        color: isDraft ? '#4f46e5' :
+                                                            campaign.status === 'sending' ? '#059669' :
+                                                                campaign.status === 'completed' ? '#0369a1' :
+                                                                    '#6b7280'
+                                                    }}>
+                                                        {isDraft ? 'DRAFT' : (() => {
+                                                            const map = {
+                                                                'draft': 'CREATED',
+                                                                'sending': 'IN PROGRESS',
+                                                                'completed': 'COMPLETED',
+                                                                'paused': 'PAUSED'
+                                                            };
+                                                            return map[campaign.status] || campaign.status.toUpperCase();
+                                                        })()}
+                                                    </strong></span>
+                                                </div>
+                                            </div>
+
+                                            {!isDraft && (
+                                                <div style={{ display: 'flex', gap: '24px', marginRight: '24px', textAlign: 'right' }}>
+                                                    <div>
+                                                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{campaign.stats?.sent || 0}</div>
+                                                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>SENT</div>
+                                                    </div>
+                                                    <div>
+                                                        <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{campaign.stats?.failed || 0}</div>
+                                                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>FAILED</div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                {!isDraft && (
+                                                    <button
+                                                        className="btn btn-outline"
+                                                        style={{ padding: '8px' }}
+                                                        onClick={(e) => { e.stopPropagation(); handleEditCampaign(campaign); }}
+                                                        disabled={campaign.status === 'completed'}
+                                                    >
+                                                        <Edit size={16} />
+                                                    </button>
+                                                )}
+                                                {!isDraft && (
+                                                    <button
+                                                        className="btn btn-outline"
+                                                        style={{ padding: '8px' }}
+                                                        onClick={(e) => { e.stopPropagation(); setActiveCampaign(campaign); setViewMode('monitor'); }}
+                                                    >
+                                                        <Play size={16} />
+                                                    </button>
+                                                )}
+                                                <button
+                                                    className="btn btn-outline"
+                                                    style={{ padding: '8px', color: 'var(--error-color)', borderColor: '#fecaca' }}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (isDraft) {
+                                                            if (window.confirm('Discard this local draft?')) resetDraft();
+                                                        } else {
+                                                            handleDelete(campaign.id, e);
+                                                        }
+                                                    }}
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', gap: '24px', marginRight: '24px', textAlign: 'right' }}>
-                                            <div>
-                                                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{campaign.stats?.sent || 0}</div>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>SENT</div>
-                                            </div>
-                                            <div>
-                                                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{campaign.stats?.failed || 0}</div>
-                                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>FAILED</div>
-                                            </div>
-                                        </div>
-                                        <div style={{ display: 'flex', gap: '8px' }}>
-                                            <button
-                                                className="btn btn-outline"
-                                                style={{ padding: '8px' }}
-                                                onClick={(e) => { e.stopPropagation(); handleEditCampaign(campaign); }}
-                                                disabled={campaign.status === 'completed'}
-                                            >
-                                                <Edit size={16} />
-                                            </button>
-                                            <button
-                                                className="btn btn-outline"
-                                                style={{ padding: '8px' }}
-                                                onClick={(e) => { e.stopPropagation(); setActiveCampaign(campaign); setViewMode('monitor'); }}
-                                            >
-                                                <Play size={16} />
-                                            </button>
-                                            <button
-                                                className="btn btn-outline"
-                                                style={{ padding: '8px', color: 'var(--error-color)', borderColor: '#fecaca' }}
-                                                onClick={(e) => handleDelete(campaign.id, e)}
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

@@ -1,38 +1,38 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-  /* Premium Mint Green Palette */
-  --primary-color: #059669;
-  /* Emerald 600 - Vibrant but readable */
-  --primary-hover: #047857;
-  /* Emerald 700 */
-  --secondary-color: #064e3b;
-  /* Emerald 900 - Deep Evergreen for text */
-  --accent-color: #34d399;
-  /* Emerald 400 - Bright Mint */
-  --accent-glow: rgba(52, 211, 153, 0.3);
+  /* Professional Indigo & Slate Palette */
+  --primary-color: #4f46e5;
+  /* Indigo 600 */
+  --primary-hover: #4338ca;
+  /* Indigo 700 */
+  --secondary-color: #0f172a;
+  /* Slate 900 */
+  --accent-color: #818cf8;
+  /* Indigo 400 */
+  --accent-glow: rgba(79, 70, 229, 0.15);
   --background-color: #ffffff;
-  --surface-color: #ecfdf5;
-  /* Emerald 50 - Very light mint tint */
-  --text-primary: #022c22;
-  /* Emerald 950 - Almost black green */
-  --text-secondary: #374151;
-  /* Gray 700 */
-  --border-color: #d1fae5;
-  /* Emerald 100 */
+  --surface-color: #f8fafc;
+  /* Slate 50 */
+  --text-primary: #0f172a;
+  /* Slate 900 */
+  --text-secondary: #475569;
+  /* Slate 600 */
+  --border-color: #e2e8f0;
+  /* Slate 200 */
   --success-color: #10b981;
   --error-color: #ef4444;
   --warning-color: #f59e0b;
 
   /* Gradients */
-  --gradient-primary: linear-gradient(135deg, #059669 0%, #10b981 100%);
-  --gradient-surface: linear-gradient(180deg, #ffffff 0%, #ecfdf5 100%);
+  --gradient-primary: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+  --gradient-surface: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgba(6, 78, 59, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(6, 78, 59, 0.1), 0 2px 4px -2px rgba(6, 78, 59, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(6, 78, 59, 0.1), 0 4px 6px -4px rgba(6, 78, 59, 0.1);
-  --shadow-xl: 0 20px 25px -5px rgba(6, 78, 59, 0.1), 0 8px 10px -6px rgba(6, 78, 59, 0.1);
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.1), 0 2px 4px -2px rgba(15, 23, 42, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.1), 0 4px 6px -4px rgba(15, 23, 42, 0.1);
+  --shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
 
   --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 
@@ -42,26 +42,26 @@
   --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
 
   /* New Gradients */
-  --gradient-premium: linear-gradient(135deg, #059669 0%, #34d399 100%);
-  --gradient-dark: linear-gradient(135deg, #064e3b 0%, #022c22 100%);
+  --gradient-premium: linear-gradient(135deg, #4f46e5 0%, #818cf8 100%);
+  --gradient-dark: linear-gradient(135deg, #0f172a 0%, #020617 100%);
   --gradient-card: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.5) 100%);
 
   --card-bg: #ffffff;
 }
 
 :root[data-theme='dark'] {
-  --primary-color: #34d399;
-  --primary-hover: #10b981;
-  --secondary-color: #ecfdf5;
-  --accent-color: #10b981;
-  --background-color: #0f172a;
-  --surface-color: #1e293b;
-  --card-bg: #1e293b;
+  --primary-color: #818cf8;
+  --primary-hover: #6366f1;
+  --secondary-color: #f8fafc;
+  --accent-color: #6366f1;
+  --background-color: #020617;
+  --surface-color: #0f172a;
+  --card-bg: #0f172a;
   --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-tertiary: #94a3b8;
-  --border-color: #334155;
-  --success-color: #34d399;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --border-color: #1e293b;
+  --success-color: #10b981;
   --error-color: #f87171;
   --warning-color: #fbbf24;
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
