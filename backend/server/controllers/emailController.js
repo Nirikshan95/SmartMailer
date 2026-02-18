@@ -134,10 +134,21 @@ async function validateEmails(req, res) {
     }
 }
 
+async function processQueuedEmails(req, res) {
+    try {
+        const results = await emailService.processQueuedEmails();
+        res.json({ success: true, ...results });
+    } catch (error) {
+        console.error('Error processing queued emails:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+}
+
 module.exports = {
     sendEmail,
     getEmailStats,
     getEmailLists,
     updateEmailLists,
-    validateEmails
+    validateEmails,
+    processQueuedEmails
 };

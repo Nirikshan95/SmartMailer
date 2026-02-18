@@ -16,7 +16,13 @@ let emailRecords = {
     prospectLists: [
         { id: 'default', name: 'Default List', emails: [] }
     ],
-    campaigns: []
+    campaigns: [],
+    emailOpens: [],
+    emailClicks: [],
+    emailBounces: [],
+    scheduledEmails: [],
+    suppressionList: [],
+    unsubscribeRequests: []
 };
 
 // --- Invalid Domains ---
@@ -67,6 +73,26 @@ function loadEmailRecords() {
 
             if (!loadedData.campaigns) {
                 loadedData.campaigns = [];
+            }
+
+            // Migration: Ensure analytics arrays exist
+            if (!loadedData.emailOpens) {
+                loadedData.emailOpens = [];
+            }
+            if (!loadedData.emailClicks) {
+                loadedData.emailClicks = [];
+            }
+            if (!loadedData.emailBounces) {
+                loadedData.emailBounces = [];
+            }
+            if (!loadedData.scheduledEmails) {
+                loadedData.scheduledEmails = [];
+            }
+            if (!loadedData.suppressionList) {
+                loadedData.suppressionList = [];
+            }
+            if (!loadedData.unsubscribeRequests) {
+                loadedData.unsubscribeRequests = [];
             }
 
             emailRecords = loadedData;
@@ -148,11 +174,180 @@ function incrementHourCount() {
     saveEmailRecords();
 }
 
-function addSentEmail(email) {
-    emailRecords.sentEmails.push({ email, timestamp: Date.now() });
+function addSentEmail(email, campaignId = null) {
+    emailRecords.sentEmails.push({ email, timestamp: Date.now(), campaignId });
     incrementTodayCount();
     incrementHourCount();
     saveEmailRecords();
+}
+
+function isEmailAlreadySent(email, campaignId = null) {
+    return emailRecords.sentEmails.some(record => 
+        record.email === email && (!campaignId || record.campaignId === campaignId)
+    );
+}
+
+function getPendingEmails() {
+    return emailRecords.pendingEmails || [];
+}
+
+function addPendingEmail(emailData) {
+    if (!emailRecords.pendingEmails) emailRecords.pendingEmails = [];
+    emailRecords.pendingEmails.push({ ...emailData, id: Date.now().toString() + Math.random().toString(36).substr(2, 9) });
+    saveEmailRecords();
+}
+
+function removePendingEmail(id) {
+    emailRecords.pendingEmails = emailRecords.pendingEmails.filter(e => e.id !== id);
+    saveEmailRecords();
+}
+
+function recordEmailOpen(email, campaignId, trackingId) {
+    emailRecords.emailOpens.push({
+        email,
+        campaignId,
+        trackingId,
+        openedAt: Date.now(),
+        timestamp: Date.now()
+    });
+    saveEmailRecords();
+}
+
+function recordEmailClick(email, campaignId, trackingId, url) {
+    emailRecords.emailClicks.push({
+        email,
+        campaignId,
+        trackingId,
+        url,
+        clickedAt: Date.now(),
+        timestamp: Date.now()
+    });
+    saveEmailRecords();
+}
+
+function recordEmailBounce(email, campaignId, bounceType, reason) {
+    emailRecords.emailBounces.push({
+        email,
+        campaignId,
+        bounceType,
+        reason,
+        bouncedAt: Date.now(),
+        timestamp: Date.now()
+    });
+    saveEmailRecords();
+}
+
+function getEmailAnalytics(campaignId = null) {
+    const opens = campaignId 
+        ? emailRecords.emailOpens.filter(o => o.campaignId === campaignId)
+        : emailRecords.emailOpens;
+    const clicks = campaignId
+        ? emailRecords.emailClicks.filter(c => c.campaignId === campaignId)
+        : emailRecords.emailClicks;
+    const bounces = campaignId
+        ? emailRecords.emailBounces.filter(b => b.campaignId === campaignId)
+        : emailRecords.emailBounces;
+    const sent = campaignId
+        ? emailRecords.sentEmails.filter(s => s.campaignId === campaignId)
+        : emailRecords.sentEmails;
+
+    return {
+        totalSent: sent.length,
+        totalOpens: opens.length,
+        totalClicks: clicks.length,
+        totalBounces: bounces.length,
+        openRate: sent.length > 0 ? ((opens.length / sent.length) * 100).toFixed(2) : 0,
+        clickRate: sent.length > 0 ? ((clicks.length / sent.length) * 100).toFixed(2) : 0,
+        bounceRate: sent.length > 0 ? ((bounces.length / sent.length) * 100).toFixed(2) : 0,
+        opens,
+        clicks,
+        bounces
+    };
+}
+
+function addScheduledEmail(emailData) {
+    if (!emailRecords.scheduledEmails) emailRecords.scheduledEmails = [];
+    emailRecords.scheduledEmails.push({
+        ...emailData,
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        status: 'pending',
+        createdAt: Date.now()
+    });
+    saveEmailRecords();
+}
+
+function getScheduledEmails() {
+    return emailRecords.scheduledEmails || [];
+}
+
+function removeScheduledEmail(id) {
+    emailRecords.scheduledEmails = emailRecords.scheduledEmails.filter(e => e.id !== id);
+    saveEmailRecords();
+}
+
+function updateScheduledEmailStatus(id, status) {
+    const email = emailRecords.scheduledEmails.find(e => e.id === id);
+    if (email) {
+        email.status = status;
+        email.updatedAt = Date.now();
+        saveEmailRecords();
+    }
+}
+
+// --- Suppression List ---
+
+function addToSuppressionList(email, reason = 'user_unsubscribed') {
+    if (!emailRecords.suppressionList) emailRecords.suppressionList = [];
+    
+    const existing = emailRecords.suppressionList.find(e => e.email === email);
+    if (existing) {
+        existing.updatedAt = Date.now();
+        existing.reason = reason;
+    } else {
+        emailRecords.suppressionList.push({
+            email,
+            reason,
+            addedAt: Date.now(),
+            updatedAt: Date.now()
+        });
+    }
+    saveEmailRecords();
+}
+
+function removeFromSuppressionList(email) {
+    emailRecords.suppressionList = emailRecords.suppressionList.filter(e => e.email !== email);
+    saveEmailRecords();
+}
+
+function isEmailSuppressed(email) {
+    return emailRecords.suppressionList.some(e => e.email === email);
+}
+
+function getSuppressionList() {
+    return emailRecords.suppressionList || [];
+}
+
+// --- Unsubscribe Requests ---
+
+function recordUnsubscribeRequest(email, campaignId = null) {
+    if (!emailRecords.unsubscribeRequests) emailRecords.unsubscribeRequests = [];
+    
+    emailRecords.unsubscribeRequests.push({
+        email,
+        campaignId,
+        requestedAt: Date.now(),
+        timestamp: Date.now()
+    });
+    
+    addToSuppressionList(email, 'user_unsubscribed');
+    saveEmailRecords();
+}
+
+function getUnsubscribeRequests(campaignId = null) {
+    const requests = emailRecords.unsubscribeRequests || [];
+    return campaignId 
+        ? requests.filter(r => r.campaignId === campaignId)
+        : requests;
 }
 
 // Initialize
@@ -168,5 +363,23 @@ module.exports = {
     cleanOldEmailRecords,
     getEmailsSentToday,
     getEmailsSentThisHour,
-    addSentEmail
+    addSentEmail,
+    isEmailAlreadySent,
+    getPendingEmails,
+    addPendingEmail,
+    removePendingEmail,
+    recordEmailOpen,
+    recordEmailClick,
+    recordEmailBounce,
+    getEmailAnalytics,
+    addScheduledEmail,
+    getScheduledEmails,
+    removeScheduledEmail,
+    updateScheduledEmailStatus,
+    addToSuppressionList,
+    removeFromSuppressionList,
+    isEmailSuppressed,
+    getSuppressionList,
+    recordUnsubscribeRequest,
+    getUnsubscribeRequests
 };

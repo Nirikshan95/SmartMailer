@@ -8,6 +8,14 @@ import Templates from './components/dashboard/Templates';
 import Campaigns from './components/dashboard/Campaigns';
 import Analytics from './components/dashboard/Analytics';
 import Settings from './components/dashboard/Settings';
+import QueueManagement from './components/dashboard/QueueManagement';
+import Scheduling from './components/dashboard/Scheduling';
+import Throttling from './components/dashboard/Throttling';
+import AIWriting from './components/dashboard/AIWriting';
+import Unsubscribe from './components/dashboard/Unsubscribe';
+import Personalization from './components/dashboard/Personalization';
+import Attachments from './components/dashboard/Attachments';
+import Security from './components/dashboard/Security';
 
 const App = () => {
     return (
@@ -20,6 +28,14 @@ const App = () => {
                     <Route path="templates" element={<Templates />} />
                     <Route path="campaigns" element={<Campaigns />} />
                     <Route path="analytics" element={<Analytics />} />
+                    <Route path="queue" element={<QueueManagement />} />
+                    <Route path="scheduling" element={<Scheduling />} />
+                    <Route path="throttling" element={<Throttling />} />
+                    <Route path="ai-writing" element={<AIWriting />} />
+                    <Route path="unsubscribe" element={<Unsubscribe />} />
+                    <Route path="personalization" element={<Personalization />} />
+                    <Route path="attachments" element={<Attachments />} />
+                    <Route path="security" element={<Security />} />
                     <Route path="settings" element={<Settings />} />
                 </Route>
                 {/* Redirect old /app route to dashboard */}

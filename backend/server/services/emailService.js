@@ -3,8 +3,11 @@ const validator = require('validator');
 const deepEmailValidator = require('deep-email-validator');
 const dns = require('dns');
 const net = require('net');
+const crypto = require('crypto');
 const config = require('../config');
 const storageService = require('./storageService');
+const throttlingService = require('./throttlingService');
+const attachmentService = require('./attachmentService');
 
 // --- Validation Logic ---
 
@@ -171,13 +174,114 @@ async function isEmailBounceable(email, verifySMTP = true) {
 
 // --- Sending Logic ---
 
-async function sendEmail(smtpConfig, recipient, subject, htmlContent) {
-    // Check limits
-    if (storageService.getEmailsSentToday() >= config.emailLimits.maxPerDay) {
-        throw new Error('Daily limit reached');
+function generateTrackingId() {
+    return crypto.randomBytes(16).toString('hex');
+}
+
+function injectTrackingPixel(htmlContent, trackingId, baseUrl) {
+    const trackingPixelUrl = `${baseUrl}/api/track/open/${trackingId}`;
+    const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" style="display:none;" alt="" />`;
+    
+    // Insert tracking pixel before closing body tag or at the end
+    if (htmlContent.includes('</body>')) {
+        return htmlContent.replace('</body>', `${trackingPixel}</body>`);
     }
-    if (storageService.getEmailsSentThisHour() >= config.emailLimits.maxPerHour) {
-        throw new Error('Hourly limit reached');
+    return htmlContent + trackingPixel;
+}
+
+function injectClickTracking(htmlContent, trackingId, baseUrl) {
+    const linkRegex = /<a\s+([^>]*href=["'])([^"']+)(["'][^>]*)>/gi;
+    
+    return htmlContent.replace(linkRegex, (match, prefix, url, suffix) => {
+        const trackedUrl = `${baseUrl}/api/track/click/${trackingId}?url=${encodeURIComponent(url)}`;
+        return `<a ${prefix}${trackedUrl}${suffix}>`;
+    });
+}
+
+async function sendEmail(smtpConfig, recipient, subject, htmlContent, campaignId = null, enableTracking = true, baseUrl = 'http://localhost:3001', emailIndex = 0, attachments = []) {
+    // Check for duplicate emails
+    if (storageService.isEmailAlreadySent(recipient.email, campaignId)) {
+        return { 
+            success: false, 
+            message: 'Email already sent to this recipient', 
+            duplicate: true 
+        };
+    }
+
+    // Apply throttling
+    const throttling = await throttlingService.applyThrottling(emailIndex);
+    if (!throttling.allowed) {
+        storageService.addPendingEmail({
+            smtpConfig,
+            recipient,
+            subject,
+            htmlContent,
+            campaignId,
+            queuedAt: Date.now(),
+            reason: throttling.reason || 'Throttling applied'
+        });
+        return { 
+            success: false, 
+            message: `Email queued (${throttling.reason})`, 
+            queued: true,
+            throttling
+        };
+    }
+
+    // Check spam score
+    const spamCheck = throttlingService.checkSpamScore(htmlContent, subject);
+    if (!spamCheck.allowed) {
+        return { 
+            success: false, 
+            message: 'Email rejected due to spam score', 
+            spamRejected: true,
+            spamCheck
+        };
+    }
+
+    // Check limits
+    const emailsToday = storageService.getEmailsSentToday();
+    const emailsThisHour = storageService.getEmailsSentThisHour();
+    const maxPerDay = config.emailLimits.maxPerDay;
+    const maxPerHour = config.emailLimits.maxPerHour;
+
+    if (emailsToday >= maxPerDay) {
+        // Queue the email instead of throwing error
+        storageService.addPendingEmail({
+            smtpConfig,
+            recipient,
+            subject,
+            htmlContent,
+            campaignId,
+            queuedAt: Date.now(),
+            reason: 'Daily limit reached'
+        });
+        return { 
+            success: false, 
+            message: 'Email queued (daily limit reached)', 
+            queued: true,
+            emailsToday,
+            maxPerDay
+        };
+    }
+    if (emailsThisHour >= maxPerHour) {
+        // Queue the email instead of throwing error
+        storageService.addPendingEmail({
+            smtpConfig,
+            recipient,
+            subject,
+            htmlContent,
+            campaignId,
+            queuedAt: Date.now(),
+            reason: 'Hourly limit reached'
+        });
+        return { 
+            success: false, 
+            message: 'Email queued (hourly limit reached)', 
+            queued: true,
+            emailsThisHour,
+            maxPerHour
+        };
     }
 
     const transporter = nodemailer.createTransport({
@@ -192,19 +296,123 @@ async function sendEmail(smtpConfig, recipient, subject, htmlContent) {
         personalizedHtmlContent = htmlContent.replace(/{{name}}/g, recipient.name);
     }
 
-    await transporter.verify();
-    const info = await transporter.sendMail({
-        from: smtpConfig.email,
-        to: recipient.email,
-        subject: subject,
-        html: personalizedHtmlContent
-    });
+    // Process attachments
+    const { regularAttachments, inlineImages } = attachmentService.processAttachments(attachments, recipient);
+    
+    // Check attachment limits
+    if (attachments && attachments.length > 0) {
+        const attachmentCheck = attachmentService.checkAttachmentLimits(attachments);
+        if (!attachmentCheck.valid) {
+            return {
+                success: false,
+                message: 'Attachment limit exceeded',
+                errors: attachmentCheck.errors
+            };
+        }
+    }
+    
+    // Replace inline image placeholders
+    if (inlineImages.length > 0) {
+        personalizedHtmlContent = attachmentService.replaceImagePlaceholders(personalizedHtmlContent, inlineImages);
+    }
 
-    storageService.addSentEmail(recipient.email);
-    return info;
+    // Generate tracking ID and inject tracking if enabled
+    let trackingId = null;
+    if (enableTracking) {
+        trackingId = generateTrackingId();
+        personalizedHtmlContent = injectTrackingPixel(personalizedHtmlContent, trackingId, baseUrl);
+        personalizedHtmlContent = injectClickTracking(personalizedHtmlContent, trackingId, baseUrl);
+    }
+
+    try {
+        await transporter.verify();
+        
+        const mailOptions = {
+            from: smtpConfig.email,
+            to: recipient.email,
+            subject: subject,
+            html: personalizedHtmlContent
+        };
+        
+        // Add attachments if present
+        if (regularAttachments.length > 0) {
+            mailOptions.attachments = regularAttachments;
+        }
+        
+        // Add inline images if present
+        if (inlineImages.length > 0) {
+            mailOptions.inlineImages = inlineImages;
+        }
+        
+        const info = await transporter.sendMail(mailOptions);
+
+        // Store tracking ID with the sent email
+        const sentEmails = storageService.getEmailRecords().sentEmails;
+        const lastSentEmail = sentEmails[sentEmails.length - 1];
+        if (lastSentEmail && lastSentEmail.email === recipient.email) {
+            lastSentEmail.trackingId = trackingId;
+            storageService.saveEmailRecords();
+        }
+
+        return { success: true, info, trackingId };
+    } catch (error) {
+        // Record bounce if sending fails
+        storageService.recordEmailBounce(recipient.email, campaignId, 'send_failed', error.message);
+        throw error;
+    }
+}
+
+async function processQueuedEmails() {
+    const pendingEmails = storageService.getPendingEmails();
+    if (pendingEmails.length === 0) {
+        return { processed: 0, message: 'No queued emails' };
+    }
+
+    const results = {
+        processed: 0,
+        sent: 0,
+        queued: 0,
+        failed: 0,
+        duplicates: 0
+    };
+
+    for (const pendingEmail of pendingEmails) {
+        try {
+            const result = await sendEmail(
+                pendingEmail.smtpConfig,
+                pendingEmail.recipient,
+                pendingEmail.subject,
+                pendingEmail.htmlContent,
+                pendingEmail.campaignId
+            );
+
+            if (result.success) {
+                results.sent++;
+                storageService.removePendingEmail(pendingEmail.id);
+            } else if (result.queued) {
+                results.queued++;
+            } else if (result.duplicate) {
+                results.duplicates++;
+                storageService.removePendingEmail(pendingEmail.id);
+            } else {
+                results.failed++;
+            }
+            results.processed++;
+        } catch (error) {
+            console.error('Failed to process queued email:', error);
+            results.failed++;
+            results.processed++;
+        }
+    }
+
+    return results;
 }
 
 module.exports = {
     isEmailBounceable,
-    sendEmail
+    sendEmail,
+    processQueuedEmails,
+    generateTrackingId,
+    injectTrackingPixel,
+    injectClickTracking
 };

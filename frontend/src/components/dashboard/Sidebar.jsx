@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, FileText, Send, BarChart2, LogOut, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, Send, BarChart2, LogOut, Settings, Clock, Shield, Sparkles, Zap, MailX, FileImage, Lock } from 'lucide-react';
 
 const Sidebar = () => {
     const navItems = [
@@ -9,6 +9,14 @@ const Sidebar = () => {
         { path: '/dashboard/templates', icon: FileText, label: 'Templates' },
         { path: '/dashboard/campaigns', icon: Send, label: 'Campaigns' },
         { path: '/dashboard/analytics', icon: BarChart2, label: 'Analytics' },
+        { path: '/dashboard/queue', icon: Clock, label: 'Queue Management' },
+        { path: '/dashboard/scheduling', icon: Clock, label: 'Scheduling' },
+        { path: '/dashboard/throttling', icon: Zap, label: 'Throttling' },
+        { path: '/dashboard/ai-writing', icon: Sparkles, label: 'AI Writing' },
+        { path: '/dashboard/unsubscribe', icon: MailX, label: 'Unsubscribe' },
+        { path: '/dashboard/personalization', icon: FileImage, label: 'Personalization' },
+        { path: '/dashboard/attachments', icon: FileImage, label: 'Attachments' },
+        { path: '/dashboard/security', icon: Lock, label: 'Security' },
         { path: '/dashboard/settings', icon: Settings, label: 'Settings' },
     ];
 
